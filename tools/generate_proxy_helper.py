@@ -5,14 +5,27 @@ import shutil
 import subprocess
 import zipfile
 
-BASE_DIR = r"C:\Users\ChattyNB\Documents\yttvaf"
-SDK_DIR = r"C:\Users\ChattyNB\AppData\Local\Android\Sdk"
-BUILD_TOOLS = os.path.join(SDK_DIR, "build-tools", "34.0.0")
-ANDROID_JAR = os.path.join(SDK_DIR, "platforms", "android-34", "android.jar")
-JAVAC = r"C:\Program Files\Eclipse Adoptium\jdk-21.0.11.10-hotspot\bin\javac.exe"
-D8 = os.path.join(BUILD_TOOLS, "d8.bat")
-ZIPALIGN = os.path.join(BUILD_TOOLS, "zipalign.exe")
-APKSIGNER = os.path.join(BUILD_TOOLS, "apksigner.bat")
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+SDK_DIR = os.environ.get("ANDROID_HOME") or os.environ.get("ANDROID_SDK_ROOT") or r"C:\Users\ChattyNB\AppData\Local\Android\Sdk"
+BUILD_TOOLS_DIR = os.path.join(SDK_DIR, "build-tools")
+# Find latest build tools if available
+if os.path.exists(BUILD_TOOLS_DIR):
+    build_tool_versions = sorted(os.listdir(BUILD_TOOLS_DIR), reverse=True)
+    BUILD_TOOLS = os.path.join(BUILD_TOOLS_DIR, build_tool_versions[0]) if build_tool_versions else os.path.join(BUILD_TOOLS_DIR, "34.0.0")
+else:
+    BUILD_TOOLS = os.path.join(BUILD_TOOLS_DIR, "34.0.0")
+
+PLATFORMS_DIR = os.path.join(SDK_DIR, "platforms")
+if os.path.exists(PLATFORMS_DIR):
+    platform_versions = sorted([p for p in os.listdir(PLATFORMS_DIR) if os.path.exists(os.path.join(PLATFORMS_DIR, p, "android.jar"))], reverse=True)
+    ANDROID_JAR = os.path.join(PLATFORMS_DIR, platform_versions[0], "android.jar") if platform_versions else os.path.join(PLATFORMS_DIR, "android-34", "android.jar")
+else:
+    ANDROID_JAR = os.path.join(PLATFORMS_DIR, "android-34", "android.jar")
+
+JAVAC = shutil.which("javac") or r"C:\Program Files\Eclipse Adoptium\jdk-21.0.11.10-hotspot\bin\javac.exe"
+D8 = shutil.which("d8") or os.path.join(BUILD_TOOLS, "d8.bat")
+ZIPALIGN = shutil.which("zipalign") or os.path.join(BUILD_TOOLS, "zipalign.exe")
+APKSIGNER = shutil.which("apksigner") or os.path.join(BUILD_TOOLS, "apksigner.bat")
 APKTOOL = os.path.join(BASE_DIR, "tools", "apktool_3.0.3.jar")
 
 def compile_java():
