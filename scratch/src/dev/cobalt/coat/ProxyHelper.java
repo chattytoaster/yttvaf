@@ -918,8 +918,6 @@ public class ProxyHelper {
                 cfg.put("sb_enabled", prefs.getBoolean(KEY_SB_ENABLED, true));
                 cfg.put("quality", prefs.getString(KEY_PREFERRED_QUALITY, "auto"));
                 cfg.put("speed", (double) prefs.getFloat(KEY_PLAYBACK_SPEED, 1.0f));
-                cfg.put("hide_shorts", prefs.getBoolean(KEY_CLEAN_UI_SHORTS, true));
-                cfg.put("hide_movies", prefs.getBoolean(KEY_CLEAN_UI_MOVIES, true));
                 cfg.put("color_keys", prefs.getBoolean(KEY_COLOR_KEYS_ENABLED, true));
                 byte[] b = cfg.toString().getBytes("UTF-8");
                 String headers = "HTTP/1.1 200 OK\r\n" +
@@ -991,16 +989,12 @@ public class ProxyHelper {
                 String spStr = extractParam(payload, "playback_speed");
                 float sp = 1.0f;
                 try { if (spStr != null) sp = Float.parseFloat(spStr); } catch(Exception ignored) {}
-                boolean hs = "1".equals(extractParam(payload, "clean_ui_shorts"));
-                boolean hm = "1".equals(extractParam(payload, "clean_ui_movies"));
                 boolean ck = "1".equals(extractParam(payload, "color_keys_enabled"));
 
                 prefs.edit()
                         .putBoolean(KEY_SB_ENABLED, sb)
                         .putString(KEY_PREFERRED_QUALITY, q)
                         .putFloat(KEY_PLAYBACK_SPEED, sp)
-                        .putBoolean(KEY_CLEAN_UI_SHORTS, hs)
-                        .putBoolean(KEY_CLEAN_UI_MOVIES, hm)
                         .putBoolean(KEY_COLOR_KEYS_ENABLED, ck)
                         .apply();
 
@@ -1090,8 +1084,6 @@ public class ProxyHelper {
         boolean sbEnabled = prefs.getBoolean(KEY_SB_ENABLED, true);
         String quality = prefs.getString(KEY_PREFERRED_QUALITY, "auto");
         float speed = prefs.getFloat(KEY_PLAYBACK_SPEED, 1.0f);
-        boolean hideShorts = prefs.getBoolean(KEY_CLEAN_UI_SHORTS, true);
-        boolean hideMovies = prefs.getBoolean(KEY_CLEAN_UI_MOVIES, true);
 
         return "(function() {\n" +
                 "    if (window.__yttv_mod_installed) {\n" +
@@ -1099,9 +1091,7 @@ public class ProxyHelper {
                 "            window.__yttv_update_config({\n" +
                 "                sbEnabled: " + sbEnabled + ",\n" +
                 "                quality: \"" + quality + "\",\n" +
-                "                speed: " + speed + ",\n" +
-                "                hideShorts: " + hideShorts + ",\n" +
-                "                hideMovies: " + hideMovies + "\n" +
+                "                speed: " + speed + "\n" +
                 "            });\n" +
                 "        }\n" +
                 "        return;\n" +
@@ -1110,9 +1100,7 @@ public class ProxyHelper {
                 "    window.__yttv_config = {\n" +
                 "        sbEnabled: " + sbEnabled + ",\n" +
                 "        quality: \"" + quality + "\",\n" +
-                "        speed: " + speed + ",\n" +
-                "        hideShorts: " + hideShorts + ",\n" +
-                "        hideMovies: " + hideMovies + "\n" +
+                "        speed: " + speed + "\n" +
                 "    };\n" +
                 "\n" +
                 "    /* 1. OSD BANNER */\n" +
@@ -1154,120 +1142,11 @@ public class ProxyHelper {
                 "        };\n" +
                 "    } catch(e) {}\n" +
                 "\n" +
-                "    /* 3. CLEAN UI (VIRTUAL LIST + CSS + DOM SWEEPER) */\n" +
+                "    /* 3. STYLES */\n" +
                 "    var styleEl = document.createElement('style');\n" +
                 "    styleEl.id = '__yttv_styles';\n" +
+                "    styleEl.textContent = '.ytp-ad-overlay-container, .ytp-ad-message-container { display: none !important; }';\n" +
                 "    document.documentElement.appendChild(styleEl);\n" +
-                "    function updateStyles() {\n" +
-                "        var css = '';\n" +
-                "        if (window.__yttv_config.hideShorts) {\n" +
-                "            css += 'ytlr-guide-entry-renderer[aria-label*=\"Shorts\" i], ytlr-guide-entry-renderer[aria-label*=\"Шортс\" i], ytlr-guide-entry-renderer[aria-label*=\"Короткие видео\" i], [title*=\"Shorts\" i], [title*=\"Шортс\" i], yt-tab-renderer[tab-id*=\"shorts\"], ytd-reel-shelf-renderer, yt-shelf-renderer[is-shorts], ytlr-shelf-renderer[is-shorts], .ytd-shorts, [data-endpoint*=\"shorts\"], a[href*=\"/shorts\"] { display: none !important; }\\n';\n" +
-                "        }\n" +
-                "        if (window.__yttv_config.hideMovies) {\n" +
-                "            css += 'ytlr-guide-entry-renderer[aria-label*=\"Фильмы\" i], ytlr-guide-entry-renderer[aria-label*=\"Movies\" i], [aria-label*=\"Купить или взять напрокат\" i], [aria-label*=\"Movie rentals\" i], [aria-label*=\"Paid content\" i] { display: none !important; }\\n';\n" +
-                "        }\n" +
-                "        styleEl.textContent = css;\n" +
-                "    }\n" +
-                "    updateStyles();\n" +
-                "\n" +
-                "    function filterVirtualListItems(items) {\n" +
-                "        if (!items || !Array.isArray(items)) return items;\n" +
-                "        var hideShorts = window.__yttv_config && window.__yttv_config.hideShorts;\n" +
-                "        var hideMovies = window.__yttv_config && window.__yttv_config.hideMovies;\n" +
-                "        return items.filter(function(it) {\n" +
-                "            if (!it) return true;\n" +
-                "            try {\n" +
-                "                if (it.adSlotRenderer) return false;\n" +
-                "                if (it.shelfRenderer && it.shelfRenderer.content && it.shelfRenderer.content.horizontalListRenderer) {\n" +
-                "                    var hItems = it.shelfRenderer.content.horizontalListRenderer.items;\n" +
-                "                    if (hItems && hItems.length > 0 && (hItems[0].adSlotRenderer || hItems[0].inFeedAdLayoutRenderer)) return false;\n" +
-                "                }\n" +
-                "                var str = JSON.stringify(it).toLowerCase();\n" +
-                "                if (hideShorts) {\n" +
-                "                    if (str.indexOf('reelwatchendpoint') !== -1) return false;\n" +
-                "                    if (str.indexOf('tile_style_ytlr_shorts') !== -1) return false;\n" +
-                "                    if (str.indexOf('youtube_shorts_fill_24') !== -1) return false;\n" +
-                "                    if (it.shelfRenderer && it.shelfRenderer.tvhtml5ShelfRendererType === 'TVHTML5_SHELF_RENDERER_TYPE_SHORTS') return false;\n" +
-                "                    if (it.guideEntryRenderer && (str.indexOf('shorts') !== -1 || str.indexOf('шортс') !== -1)) return false;\n" +
-                "                }\n" +
-                "                if (hideMovies) {\n" +
-                "                    if (str.indexOf('fetopics_movies') !== -1) return false;\n" +
-                "                    if (str.indexOf('fetopics_movies_and_shows') !== -1) return false;\n" +
-                "                    if (it.guideEntryRenderer && (str.indexOf('фильм') !== -1 || str.indexOf('movie') !== -1 || str.indexOf('clapperboard') !== -1)) return false;\n" +
-                "                    if (it.shelfRenderer) {\n" +
-                "                        var srStr = JSON.stringify(it.shelfRenderer).toLowerCase();\n" +
-                "                        if (srStr.indexOf('movie rentals') !== -1 || srStr.indexOf('paid content') !== -1 || srStr.indexOf('напрокат') !== -1 || srStr.indexOf('купить или взять напрокат') !== -1 || srStr.indexOf('фильмы и сериалы') !== -1) return false;\n" +
-                "                    }\n" +
-                "                }\n" +
-                "            } catch(e) {}\n" +
-                "            return true;\n" +
-                "        });\n" +
-                "    }\n" +
-                "\n" +
-                "    function ensureVlHook() {\n" +
-                "        try {\n" +
-                "            var allVl = document.querySelectorAll('yt-virtual-list');\n" +
-                "            for (var i = 0; i < allVl.length; i++) {\n" +
-                "                var vl = allVl[i];\n" +
-                "                if (!vl || !vl.__instance) continue;\n" +
-                "                var proto = Object.getPrototypeOf(vl.__instance);\n" +
-                "                if (proto && !proto.__yttv_hooked) {\n" +
-                "                    proto.__yttv_hooked = true;\n" +
-                "                    var origA = proto.A;\n" +
-                "                    proto.A = function(a) {\n" +
-                "                        try {\n" +
-                "                            if (this.props && this.props.items && Array.isArray(this.props.items)) {\n" +
-                "                                this.props.items = filterVirtualListItems(this.props.items);\n" +
-                "                            }\n" +
-                "                        } catch(e) {}\n" +
-                "                        return origA.apply(this, arguments);\n" +
-                "                    };\n" +
-                "                }\n" +
-                "                if (vl.__instance.props && vl.__instance.props.items && Array.isArray(vl.__instance.props.items)) {\n" +
-                "                    var oldLen = vl.__instance.props.items.length;\n" +
-                "                    var filtered = filterVirtualListItems(vl.__instance.props.items);\n" +
-                "                    if (filtered.length !== oldLen) {\n" +
-                "                        vl.__instance.props.items = filtered;\n" +
-                "                        if (vl.__instance.A) vl.__instance.A();\n" +
-                "                    }\n" +
-                "                }\n" +
-                "            }\n" +
-                "        } catch(e) {}\n" +
-                "    }\n" +
-                "\n" +
-                "    function sweepShelves() {\n" +
-                "        ensureVlHook();\n" +
-                "        if (!window.__yttv_config.hideShorts && !window.__yttv_config.hideMovies) return;\n" +
-                "        try {\n" +
-                "            var shelves = document.querySelectorAll('ytlr-shelf-renderer, yt-shelf-renderer');\n" +
-                "            for (var i = 0; i < shelves.length; i++) {\n" +
-                "                var s = shelves[i];\n" +
-                "                var h = s.querySelector('ytlr-shelf-header, [class*=\"shelf-header\"]');\n" +
-                "                var txt = (h ? (h.textContent || '') : (s.textContent || '')).toLowerCase().trim();\n" +
-                "                var isShorts = (txt === 'shorts' || txt === 'шортс' || txt.indexOf('короткие видео') !== -1);\n" +
-                "                var isMovie = (txt.indexOf('фильмы') !== -1 || txt.indexOf('напрокат') !== -1 || txt.indexOf('movie rentals') !== -1 || txt.indexOf('paid content') !== -1);\n" +
-                "                if ((window.__yttv_config.hideShorts && isShorts) || (window.__yttv_config.hideMovies && isMovie)) {\n" +
-                "                    if (s.style.display !== 'none') s.style.display = 'none';\n" +
-                "                    if (s.parentElement && s.parentElement.tagName === 'DIV' && s.parentElement.style.display !== 'none') {\n" +
-                "                        s.parentElement.style.display = 'none';\n" +
-                "                    }\n" +
-                "                }\n" +
-                "            }\n" +
-                "            var guides = document.querySelectorAll('ytlr-guide-entry-renderer');\n" +
-                "            for (var j = 0; j < guides.length; j++) {\n" +
-                "                var g = guides[j];\n" +
-                "                var gTxt = (g.textContent || '').toLowerCase().trim();\n" +
-                "                var gShorts = (gTxt === 'shorts' || gTxt === 'шортс');\n" +
-                "                var gMovie = (gTxt.indexOf('фильмы') !== -1 || gTxt.indexOf('movies') !== -1);\n" +
-                "                if ((window.__yttv_config.hideShorts && gShorts) || (window.__yttv_config.hideMovies && gMovie)) {\n" +
-                "                    if (g.style.display !== 'none') g.style.display = 'none';\n" +
-                "                    if (g.parentElement && g.parentElement.tagName === 'DIV' && g.parentElement.style.display !== 'none') {\n" +
-                "                        g.parentElement.style.display = 'none';\n" +
-                "                    }\n" +
-                "                }\n" +
-                "            }\n" +
-                "        } catch(e) {}\n" +
-                "    }\n" +
                 "\n" +
                 "    /* 4. QUALITY CONTROL */\n" +
                 "    function applyQuality() {\n" +
@@ -1322,46 +1201,76 @@ public class ProxyHelper {
                 "        currentVid = vid;\n" +
                 "        segments = [];\n" +
                 "        skippedUuids = {};\n" +
-                "        try {\n" +
-                "            var xhr = new XMLHttpRequest();\n" +
-                "            xhr.open('GET', 'http://127.0.0.1:8888/api/sponsorblock?v=' + encodeURIComponent(vid), true);\n" +
-                "            xhr.timeout = 4000;\n" +
-                "            xhr.onload = function() {\n" +
-                "                if (xhr.status === 200) {\n" +
-                "                    try {\n" +
-                "                        var data = JSON.parse(xhr.responseText);\n" +
-                "                        if (Array.isArray(data)) {\n" +
-                "                            segments = data.map(function(item) {\n" +
-                "                                return {\n" +
-                "                                    start: item.segment[0],\n" +
-                "                                    end: item.segment[1],\n" +
-                "                                    category: item.category,\n" +
-                "                                    uuid: item.UUID || (item.segment[0] + '_' + item.segment[1])\n" +
-                "                                };\n" +
-                "                            });\n" +
-                "                            console.log('[YTTV Mod] Loaded ' + segments.length + ' segments for ' + vid);\n" +
-                "                        }\n" +
-                "                    } catch(e) {}\n" +
+                "        var catParam = encodeURIComponent('[\"sponsor\",\"selfpromo\",\"interaction\",\"intro\",\"outro\",\"preview\",\"filler\",\"music_offtopic\"]');\n" +
+                "        var primaryUrl = 'https://sponsor.ajay.app/api/skipSegments?videoID=' + encodeURIComponent(vid) + '&categories=' + catParam;\n" +
+                "        var backupUrl = 'https://api.sponsor.ajay.app/api/skipSegments?videoID=' + encodeURIComponent(vid) + '&categories=' + catParam;\n" +
+                "\n" +
+                "        function handleData(txt) {\n" +
+                "            try {\n" +
+                "                var data = JSON.parse(txt);\n" +
+                "                if (Array.isArray(data) && data.length > 0) {\n" +
+                "                    segments = data.map(function(item) {\n" +
+                "                        return {\n" +
+                "                            start: item.segment[0],\n" +
+                "                            end: item.segment[1],\n" +
+                "                            category: item.category,\n" +
+                "                            uuid: item.UUID || (item.segment[0] + '_' + item.segment[1])\n" +
+                "                        };\n" +
+                "                    });\n" +
+                "                    console.log('[YTTV Mod] Loaded ' + segments.length + ' SponsorBlock segments for ' + vid);\n" +
+                "                    showOsd('🛡️ SponsorBlock: ' + segments.length + ' сегм.', '#00e676', 2000);\n" +
                 "                }\n" +
-                "            };\n" +
-                "            xhr.send();\n" +
-                "        } catch(e) {}\n" +
+                "            } catch(e) {\n" +
+                "                console.error('[YTTV Mod] SB parse error', e);\n" +
+                "            }\n" +
+                "        }\n" +
+                "\n" +
+                "        function doRequest(url, fallback) {\n" +
+                "            try {\n" +
+                "                var xhr = new XMLHttpRequest();\n" +
+                "                xhr.open('GET', url, true);\n" +
+                "                xhr.timeout = 5000;\n" +
+                "                xhr.onload = function() {\n" +
+                "                    if (xhr.status === 200) {\n" +
+                "                        handleData(xhr.responseText);\n" +
+                "                    } else if (xhr.status === 404) {\n" +
+                "                        console.log('[YTTV Mod] No SB segments for ' + vid);\n" +
+                "                    } else if (fallback) {\n" +
+                "                        doRequest(fallback, null);\n" +
+                "                    }\n" +
+                "                };\n" +
+                "                xhr.onerror = function() {\n" +
+                "                    if (fallback) doRequest(fallback, null);\n" +
+                "                };\n" +
+                "                xhr.ontimeout = function() {\n" +
+                "                    if (fallback) doRequest(fallback, null);\n" +
+                "                };\n" +
+                "                xhr.send();\n" +
+                "            } catch(e) {\n" +
+                "                if (fallback) doRequest(fallback, null);\n" +
+                "            }\n" +
+                "        }\n" +
+                "\n" +
+                "        doRequest(primaryUrl, backupUrl);\n" +
                 "    }\n" +
                 "\n" +
                 "    function checkSponsorBlock(curTime) {\n" +
                 "        if (!window.__yttv_config.sbEnabled || segments.length === 0 || curTime < 0) return;\n" +
                 "        var p = document.getElementById('movie_player');\n" +
+                "        var v = document.querySelector('video');\n" +
                 "        for (var i = 0; i < segments.length; i++) {\n" +
                 "            var s = segments[i];\n" +
                 "            if (skippedUuids[s.uuid]) continue;\n" +
                 "            if (curTime >= (s.start - 0.25) && curTime < (s.end - 0.5)) {\n" +
                 "                skippedUuids[s.uuid] = true;\n" +
                 "                var skipTo = s.end;\n" +
-                "                if (p && p.seekTo) p.seekTo(skipTo, true);\n" +
-                "                else {\n" +
-                "                    var v = document.querySelector('video');\n" +
-                "                    if (v) v.currentTime = skipTo;\n" +
-                "                }\n" +
+                "                try {\n" +
+                "                    if (p && p.seekTo) p.seekTo(skipTo, true);\n" +
+                "                } catch(e) {}\n" +
+                "                try {\n" +
+                "                    if (v && isFinite(skipTo)) v.currentTime = skipTo;\n" +
+                "                } catch(e) {}\n" +
+                "\n" +
                 "                var catLabel = 'Спонсор';\n" +
                 "                if (s.category === 'selfpromo') catLabel = 'Самореклама';\n" +
                 "                else if (s.category === 'interaction') catLabel = 'Подписка/Лайк';\n" +
@@ -1369,6 +1278,7 @@ public class ProxyHelper {
                 "                else if (s.category === 'outro') catLabel = 'Титры';\n" +
                 "                else if (s.category === 'preview') catLabel = 'Анонс';\n" +
                 "                else if (s.category === 'filler') catLabel = 'Вода/Филлер';\n" +
+                "                else if (s.category === 'music_offtopic') catLabel = 'Немузыкальная часть';\n" +
                 "                var diff = Math.round(s.end - s.start);\n" +
                 "                showOsd('⏩ Пропущено: ' + catLabel + ' (' + diff + ' сек)', '#00e676', 3000);\n" +
                 "                break;\n" +
@@ -1380,19 +1290,8 @@ public class ProxyHelper {
                 "    window.__yttv_update_config = function(cfg) {\n" +
                 "        if (!cfg) return;\n" +
                 "        for (var k in cfg) window.__yttv_config[k] = cfg[k];\n" +
-                "        updateStyles();\n" +
                 "        applySpeed();\n" +
                 "        applyQuality();\n" +
-                "        ensureVlHook();\n" +
-                "        try {\n" +
-                "            var allVl = document.querySelectorAll('yt-virtual-list');\n" +
-                "            for (var i = 0; i < allVl.length; i++) {\n" +
-                "                if (allVl[i].__instance && allVl[i].__instance.A) {\n" +
-                "                    allVl[i].__instance.A();\n" +
-                "                }\n" +
-                "            }\n" +
-                "        } catch(e) {}\n" +
-                "        sweepShelves();\n" +
                 "    };\n" +
                 "    window.__yttv_set_speed = function(val) {\n" +
                 "        window.__yttv_config.speed = val;\n" +
@@ -1433,12 +1332,21 @@ public class ProxyHelper {
                 "\n" +
                 "            var vid = null;\n" +
                 "            if (p && p.getVideoData) {\n" +
-                "                var vd = p.getVideoData();\n" +
-                "                if (vd && vd.video_id) vid = vd.video_id;\n" +
+                "                try {\n" +
+                "                    var vd = p.getVideoData();\n" +
+                "                    if (vd && vd.video_id) vid = vd.video_id;\n" +
+                "                } catch(e) {}\n" +
+                "            }\n" +
+                "            if (!vid && p && p.getVideoUrl) {\n" +
+                "                try {\n" +
+                "                    var u = p.getVideoUrl();\n" +
+                "                    var m = u && u.match(/[?&]v=([a-zA-Z0-9_-]{11})/);\n" +
+                "                    if (m) vid = m[1];\n" +
+                "                } catch(e) {}\n" +
                 "            }\n" +
                 "            if (!vid) {\n" +
-                "                var m = location.href.match(/[?&]v=([a-zA-Z0-9_-]{11})/);\n" +
-                "                if (m) vid = m[1];\n" +
+                "                var m2 = (location.hash || location.href).match(/[?&]v=([a-zA-Z0-9_-]{11})/);\n" +
+                "                if (m2) vid = m2[1];\n" +
                 "            }\n" +
                 "            if (vid && vid !== currentVid) {\n" +
                 "                fetchSegments(vid);\n" +
@@ -1446,12 +1354,15 @@ public class ProxyHelper {
                 "            }\n" +
                 "            if (vid && segments.length > 0) {\n" +
                 "                var curTime = -1;\n" +
-                "                if (p && p.getCurrentTime) curTime = p.getCurrentTime();\n" +
-                "                else if (vids.length > 0) curTime = vids[0].currentTime;\n" +
-                "                checkSponsorBlock(curTime);\n" +
-                "            }\n" +
-                "            if (tickCount % 4 === 0) {\n" +
-                "                sweepShelves();\n" +
+                "                if (p && p.getCurrentTime) {\n" +
+                "                    try { curTime = p.getCurrentTime(); } catch(e) {}\n" +
+                "                }\n" +
+                "                if ((curTime < 0 || isNaN(curTime)) && vids.length > 0) {\n" +
+                "                    curTime = vids[0].currentTime;\n" +
+                "                }\n" +
+                "                if (curTime >= 0) {\n" +
+                "                    checkSponsorBlock(curTime);\n" +
+                "                }\n" +
                 "            }\n" +
                 "        } catch(e) {}\n" +
                 "    }, 250);\n" +
@@ -1614,8 +1525,6 @@ public class ProxyHelper {
                 boolean sbEn = prefs.getBoolean(KEY_SB_ENABLED, true);
                 String quality = prefs.getString(KEY_PREFERRED_QUALITY, "auto");
                 float speed = prefs.getFloat(KEY_PLAYBACK_SPEED, 1.0f);
-                boolean hideShorts = prefs.getBoolean(KEY_CLEAN_UI_SHORTS, true);
-                boolean hideMovies = prefs.getBoolean(KEY_CLEAN_UI_MOVIES, true);
                 boolean colorKeys = prefs.getBoolean(KEY_COLOR_KEYS_ENABLED, true);
                 String tvIp = getLocalIpAddress();
 
@@ -1630,8 +1539,6 @@ public class ProxyHelper {
                         "⏩ SponsorBlock: [" + (sbEn ? "ВКЛ" : "ВЫКЛ") + "]",
                         "📺 Качество видео: [" + qLabel + "]",
                         "⚡ Скорость воспроизведения: [" + speed + "x]",
-                        "🚫 Скрыть Shorts: [" + (hideShorts ? "ВКЛ" : "ВЫКЛ") + "]",
-                        "🚫 Скрыть полки фильмов: [" + (hideMovies ? "ВКЛ" : "ВЫКЛ") + "]",
                         "🎮 Цветные кнопки пульта: [" + (colorKeys ? "ВКЛ" : "ВЫКЛ") + "]",
                         "🌐 Веб-интерфейс: http://" + tvIp + ":" + WEB_SERVER_PORT
                 };
@@ -1664,26 +1571,12 @@ public class ProxyHelper {
                     showSettingsDialog(activity);
                     break;
                 case 4:
-                    boolean ns = !prefs.getBoolean(KEY_CLEAN_UI_SHORTS, true);
-                    prefs.edit().putBoolean(KEY_CLEAN_UI_SHORTS, ns).apply();
-                    updateWebClientConfig(prefs);
-                    Toast.makeText(activity, "Shorts: " + (ns ? "Скрыты" : "Показаны"), Toast.LENGTH_SHORT).show();
-                    showSettingsDialog(activity);
-                    break;
-                case 5:
-                    boolean nm = !prefs.getBoolean(KEY_CLEAN_UI_MOVIES, true);
-                    prefs.edit().putBoolean(KEY_CLEAN_UI_MOVIES, nm).apply();
-                    updateWebClientConfig(prefs);
-                    Toast.makeText(activity, "Полки фильмов: " + (nm ? "Скрыты" : "Показаны"), Toast.LENGTH_SHORT).show();
-                    showSettingsDialog(activity);
-                    break;
-                case 6:
                     boolean nk = !prefs.getBoolean(KEY_COLOR_KEYS_ENABLED, true);
                     prefs.edit().putBoolean(KEY_COLOR_KEYS_ENABLED, nk).apply();
                     Toast.makeText(activity, "Цветные кнопки: " + (nk ? "ВКЛ" : "ВЫКЛ"), Toast.LENGTH_SHORT).show();
                     showSettingsDialog(activity);
                     break;
-                case 7:
+                case 5:
                     showWebHintDialog(activity);
                     break;
             }
@@ -1820,15 +1713,11 @@ public class ProxyHelper {
             boolean sbEnabled = prefs.getBoolean(KEY_SB_ENABLED, true);
             String quality = prefs.getString(KEY_PREFERRED_QUALITY, "auto");
             float speed = prefs.getFloat(KEY_PLAYBACK_SPEED, 1.0f);
-            boolean hideShorts = prefs.getBoolean(KEY_CLEAN_UI_SHORTS, true);
-            boolean hideMovies = prefs.getBoolean(KEY_CLEAN_UI_MOVIES, true);
 
             String js = "if(window.__yttv_update_config) { window.__yttv_update_config({" +
                     "sbEnabled:" + sbEnabled + "," +
                     "quality:\"" + quality + "\"," +
-                    "speed:" + speed + "," +
-                    "hideShorts:" + hideShorts + "," +
-                    "hideMovies:" + hideMovies +
+                    "speed:" + speed +
                     "}); }";
             evaluateJs(js);
         } catch (Throwable t) {
@@ -1843,8 +1732,6 @@ public class ProxyHelper {
         boolean sbEn = prefs.getBoolean(KEY_SB_ENABLED, true);
         String quality = prefs.getString(KEY_PREFERRED_QUALITY, "auto");
         float speed = prefs.getFloat(KEY_PLAYBACK_SPEED, 1.0f);
-        boolean hideShorts = prefs.getBoolean(KEY_CLEAN_UI_SHORTS, true);
-        boolean hideMovies = prefs.getBoolean(KEY_CLEAN_UI_MOVIES, true);
         boolean colorKeys = prefs.getBoolean(KEY_COLOR_KEYS_ENABLED, true);
         String tvIp = getLocalIpAddress();
 
@@ -1929,18 +1816,6 @@ public class ProxyHelper {
             sb.append(sp).append("x").append(sp == 1.0f ? " (Нормальная)" : "").append("</option>");
         }
         sb.append("</select>");
-
-        // Clean UI
-        sb.append("<label style='margin-top: 16px;'>🚫 Чистый интерфейс (Clean UI):</label>");
-        sb.append("<div class='chk-row'>");
-        sb.append("<input type='checkbox' id='chk_shorts' name='clean_ui_shorts' value='1' ").append(hideShorts ? "checked" : "").append(">");
-        sb.append("<label for='chk_shorts'>Скрыть YouTube Shorts (боковое меню и ленты)</label>");
-        sb.append("</div>");
-
-        sb.append("<div class='chk-row'>");
-        sb.append("<input type='checkbox' id='chk_movies' name='clean_ui_movies' value='1' ").append(hideMovies ? "checked" : "").append(">");
-        sb.append("<label for='chk_movies'>Скрыть рекламные полки с фильмами и прокатом</label>");
-        sb.append("</div>");
 
         // Color Keys
         sb.append("<label style='margin-top: 16px;'>🎮 Горячие кнопки пульта ТВ:</label>");
