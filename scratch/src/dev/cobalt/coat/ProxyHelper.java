@@ -19,6 +19,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
@@ -43,9 +44,11 @@ import java.net.Socket;
 import java.net.URL;
 import java.net.URLDecoder;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class ProxyHelper {
     private static final String TAG = "YTTV_ProxyHelper";
@@ -54,11 +57,55 @@ public class ProxyHelper {
     private static final String KEY_PROXY_ENABLED = "proxy_enabled";
     
     public static final String KEY_SB_ENABLED = "sb_enabled";
+    public static final String KEY_SB_CATEGORIES = "sb_categories";
     public static final String KEY_PREFERRED_QUALITY = "preferred_quality";
     public static final String KEY_PLAYBACK_SPEED = "playback_speed";
     public static final String KEY_COLOR_KEYS_ENABLED = "color_keys_enabled";
-    public static final String KEY_CLEAN_UI_SHORTS = "clean_ui_shorts";
-    public static final String KEY_CLEAN_UI_MOVIES = "clean_ui_movies";
+
+    public static final String DEFAULT_SB_CATEGORIES = "sponsor,selfpromo,interaction,intro,outro,preview,filler,music_offtopic";
+    public static final String[] ALL_SB_CATEGORIES = new String[] {
+            "sponsor", "selfpromo", "interaction", "intro", "outro", "preview", "filler", "music_offtopic"
+    };
+    public static final String[] SB_CATEGORY_NAMES = new String[] {
+            "Спонсорские интеграции",
+            "Самореклама (мерч, соцсети)",
+            "Подписка / Лайк / Колокольчик",
+            "Вступительное интро",
+            "Титры / Аутро в конце",
+            "Анонс / Тизер в начале",
+            "Вода / Филлер",
+            "Немузыкальная часть в клипах"
+    };
+
+    public static Set<String> getSbCategoriesSet(Context context) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        String raw = prefs.getString(KEY_SB_CATEGORIES, DEFAULT_SB_CATEGORIES);
+        Set<String> set = new HashSet<String>();
+        if (raw != null) {
+            for (String s : raw.split(",")) {
+                s = s.trim();
+                if (!s.isEmpty()) set.add(s);
+            }
+        }
+        return set;
+    }
+
+    public static JSONArray getSbCategoriesArray(SharedPreferences prefs) {
+        String raw = prefs.getString(KEY_SB_CATEGORIES, DEFAULT_SB_CATEGORIES);
+        JSONArray arr = new JSONArray();
+        if (raw != null) {
+            for (String s : raw.split(",")) {
+                s = s.trim();
+                if (!s.isEmpty()) arr.put(s);
+            }
+        }
+        return arr;
+    }
+
+    public static String getSbCategoriesJson(Context context) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        return getSbCategoriesArray(prefs).toString();
+    }
 
     private static final int WEB_SERVER_PORT = 8888;
     private static final int LOCAL_SOCKS_PORT = 9876;
@@ -92,6 +139,9 @@ public class ProxyHelper {
             return;
         }
         sContext = context.getApplicationContext();
+        try {
+            startWebServer(sContext);
+        } catch(Throwable ignored) {}
         try {
             SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
             String proxyUrl = prefs.getString(KEY_PROXY_URL, "");
@@ -157,6 +207,9 @@ public class ProxyHelper {
         sNativeWebContents = nativePtr;
         Log.i(TAG, "WebContents available: " + nativePtr);
         if (sContext != null) {
+            try {
+                startWebServer(sContext);
+            } catch(Throwable ignored) {}
             String script = buildModScript(sContext);
             evaluateJs(script);
         }
@@ -916,6 +969,7 @@ public class ProxyHelper {
                 cfg.put("proxy_url", prefs.getString(KEY_PROXY_URL, ""));
                 cfg.put("proxy_enabled", prefs.getBoolean(KEY_PROXY_ENABLED, true));
                 cfg.put("sb_enabled", prefs.getBoolean(KEY_SB_ENABLED, true));
+                cfg.put("sb_categories", getSbCategoriesArray(prefs));
                 cfg.put("quality", prefs.getString(KEY_PREFERRED_QUALITY, "auto"));
                 cfg.put("speed", (double) prefs.getFloat(KEY_PLAYBACK_SPEED, 1.0f));
                 cfg.put("color_keys", prefs.getBoolean(KEY_COLOR_KEYS_ENABLED, true));
@@ -991,12 +1045,28 @@ public class ProxyHelper {
                 try { if (spStr != null) sp = Float.parseFloat(spStr); } catch(Exception ignored) {}
                 boolean ck = "1".equals(extractParam(payload, "color_keys_enabled"));
 
-                prefs.edit()
+                StringBuilder catBuilder = new StringBuilder();
+                for (String cat : ALL_SB_CATEGORIES) {
+                    if ("1".equals(extractParam(payload, "cat_" + cat))) {
+                        if (catBuilder.length() > 0) catBuilder.append(",");
+                        catBuilder.append(cat);
+                    }
+                }
+                String newCats = catBuilder.toString();
+                String rawCats = extractParam(payload, "sb_categories");
+                if (rawCats != null && !rawCats.isEmpty()) {
+                    newCats = rawCats;
+                }
+
+                SharedPreferences.Editor editor = prefs.edit()
                         .putBoolean(KEY_SB_ENABLED, sb)
                         .putString(KEY_PREFERRED_QUALITY, q)
                         .putFloat(KEY_PLAYBACK_SPEED, sp)
-                        .putBoolean(KEY_COLOR_KEYS_ENABLED, ck)
-                        .apply();
+                        .putBoolean(KEY_COLOR_KEYS_ENABLED, ck);
+                if (payload.contains("cat_") || (rawCats != null && !rawCats.isEmpty())) {
+                    editor.putString(KEY_SB_CATEGORIES, newCats);
+                }
+                editor.apply();
 
                 updateWebClientConfig(prefs);
                 responseHtml = getHtmlPage(context, "&#9989; &#1053;&#1072;&#1089;&#1090;&#1088;&#1086;&#1081;&#1082;&#1080; &#1087;&#1088;&#1080;&#1084;&#1077;&#1085;&#1077;&#1085;&#1099; &#1085;&#1072; &#1058;&#1042; &#1073;&#1077;&#1079; &#1087;&#1077;&#1088;&#1077;&#1079;&#1072;&#1087;&#1091;&#1089;&#1082;&#1072;!");
@@ -1082,6 +1152,7 @@ public class ProxyHelper {
     public static String buildModScript(Context context) {
         SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         boolean sbEnabled = prefs.getBoolean(KEY_SB_ENABLED, true);
+        String sbCatsJson = getSbCategoriesJson(context);
         String quality = prefs.getString(KEY_PREFERRED_QUALITY, "auto");
         float speed = prefs.getFloat(KEY_PLAYBACK_SPEED, 1.0f);
 
@@ -1090,6 +1161,7 @@ public class ProxyHelper {
                 "        if (window.__yttv_update_config) {\n" +
                 "            window.__yttv_update_config({\n" +
                 "                sbEnabled: " + sbEnabled + ",\n" +
+                "                sbCategories: " + sbCatsJson + ",\n" +
                 "                quality: \"" + quality + "\",\n" +
                 "                speed: " + speed + "\n" +
                 "            });\n" +
@@ -1099,6 +1171,7 @@ public class ProxyHelper {
                 "    window.__yttv_mod_installed = true;\n" +
                 "    window.__yttv_config = {\n" +
                 "        sbEnabled: " + sbEnabled + ",\n" +
+                "        sbCategories: " + sbCatsJson + ",\n" +
                 "        quality: \"" + quality + "\",\n" +
                 "        speed: " + speed + "\n" +
                 "    };\n" +
@@ -1201,7 +1274,9 @@ public class ProxyHelper {
                 "        currentVid = vid;\n" +
                 "        segments = [];\n" +
                 "        skippedUuids = {};\n" +
-                "        var catParam = encodeURIComponent('[\"sponsor\",\"selfpromo\",\"interaction\",\"intro\",\"outro\",\"preview\",\"filler\",\"music_offtopic\"]');\n" +
+                "        var cats = window.__yttv_config.sbCategories || [\"sponsor\",\"selfpromo\",\"interaction\",\"intro\",\"outro\",\"preview\",\"filler\",\"music_offtopic\"];\n" +
+                "        if (!Array.isArray(cats) || cats.length === 0) return;\n" +
+                "        var catParam = encodeURIComponent(JSON.stringify(cats));\n" +
                 "        var primaryUrl = 'https://sponsor.ajay.app/api/skipSegments?videoID=' + encodeURIComponent(vid) + '&categories=' + catParam;\n" +
                 "        var backupUrl = 'https://api.sponsor.ajay.app/api/skipSegments?videoID=' + encodeURIComponent(vid) + '&categories=' + catParam;\n" +
                 "\n" +
@@ -1258,9 +1333,11 @@ public class ProxyHelper {
                 "        if (!window.__yttv_config.sbEnabled || segments.length === 0 || curTime < 0) return;\n" +
                 "        var p = document.getElementById('movie_player');\n" +
                 "        var v = document.querySelector('video');\n" +
+                "        var cats = window.__yttv_config.sbCategories || [];\n" +
                 "        for (var i = 0; i < segments.length; i++) {\n" +
                 "            var s = segments[i];\n" +
                 "            if (skippedUuids[s.uuid]) continue;\n" +
+                "            if (cats.length > 0 && cats.indexOf(s.category) === -1) continue;\n" +
                 "            if (curTime >= (s.start - 0.25) && curTime < (s.end - 0.5)) {\n" +
                 "                skippedUuids[s.uuid] = true;\n" +
                 "                var skipTo = s.end;\n" +
@@ -1289,9 +1366,13 @@ public class ProxyHelper {
                 "    /* 7. EXPOSED CONTROLS */\n" +
                 "    window.__yttv_update_config = function(cfg) {\n" +
                 "        if (!cfg) return;\n" +
+                "        var oldCats = JSON.stringify(window.__yttv_config.sbCategories || []);\n" +
                 "        for (var k in cfg) window.__yttv_config[k] = cfg[k];\n" +
                 "        applySpeed();\n" +
                 "        applyQuality();\n" +
+                "        if (cfg.sbCategories && JSON.stringify(cfg.sbCategories) !== oldCats && currentVid) {\n" +
+                "            fetchSegments(currentVid);\n" +
+                "        }\n" +
                 "    };\n" +
                 "    window.__yttv_set_speed = function(val) {\n" +
                 "        window.__yttv_config.speed = val;\n" +
@@ -1414,6 +1495,10 @@ public class ProxyHelper {
 
     public static boolean handleDispatchKeyEvent(Activity activity, KeyEvent event) {
         if (event == null || activity == null) return false;
+        if (sContext == null) sContext = activity.getApplicationContext();
+        try {
+            startWebServer(activity);
+        } catch(Throwable ignored) {}
         if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
         return handleKeyDown(activity, event.getKeyCode(), event);
     }
@@ -1527,6 +1612,7 @@ public class ProxyHelper {
                 float speed = prefs.getFloat(KEY_PLAYBACK_SPEED, 1.0f);
                 boolean colorKeys = prefs.getBoolean(KEY_COLOR_KEYS_ENABLED, true);
                 String tvIp = getLocalIpAddress();
+                int catCount = getSbCategoriesSet(activity).size();
 
                 AlertDialog.Builder builder = new AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert);
                 builder.setTitle("⚙ Настройки YouTube TV Mod");
@@ -1537,6 +1623,7 @@ public class ProxyHelper {
                 final String[] items = new String[] {
                         "⚡ SOCKS5 Прокси: [" + proxyLabel + "]",
                         "⏩ SponsorBlock: [" + (sbEn ? "ВКЛ" : "ВЫКЛ") + "]",
+                        "🎯 Категории SponsorBlock: [" + catCount + " из " + ALL_SB_CATEGORIES.length + "]",
                         "📺 Качество видео: [" + qLabel + "]",
                         "⚡ Скорость воспроизведения: [" + speed + "x]",
                         "🎮 Цветные кнопки пульта: [" + (colorKeys ? "ВКЛ" : "ВЫКЛ") + "]",
@@ -1563,24 +1650,88 @@ public class ProxyHelper {
                     showSettingsDialog(activity);
                     break;
                 case 2:
+                    showSponsorBlockCategoriesDialog(activity);
+                    break;
+                case 3:
                     cycleQuality(activity);
                     showSettingsDialog(activity);
                     break;
-                case 3:
+                case 4:
                     cyclePlaybackSpeed(activity);
                     showSettingsDialog(activity);
                     break;
-                case 4:
+                case 5:
                     boolean nk = !prefs.getBoolean(KEY_COLOR_KEYS_ENABLED, true);
                     prefs.edit().putBoolean(KEY_COLOR_KEYS_ENABLED, nk).apply();
                     Toast.makeText(activity, "Цветные кнопки: " + (nk ? "ВКЛ" : "ВЫКЛ"), Toast.LENGTH_SHORT).show();
                     showSettingsDialog(activity);
                     break;
-                case 5:
+                case 6:
                     showWebHintDialog(activity);
                     break;
             }
         }
+    }
+
+    private static class SbCategoriesDialogRunnable implements Runnable, DialogInterface.OnMultiChoiceClickListener, DialogInterface.OnClickListener {
+        private final Activity activity;
+        private boolean[] checked;
+
+        SbCategoriesDialogRunnable(Activity activity) {
+            this.activity = activity;
+        }
+
+        @Override
+        public void run() {
+            try {
+                final Set<String> currentCats = getSbCategoriesSet(activity);
+                checked = new boolean[ALL_SB_CATEGORIES.length];
+                for (int i = 0; i < ALL_SB_CATEGORIES.length; i++) {
+                    checked[i] = currentCats.contains(ALL_SB_CATEGORIES[i]);
+                }
+
+                AlertDialog.Builder builder = new AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert);
+                builder.setTitle("🎯 Категории SponsorBlock");
+                builder.setMultiChoiceItems(SB_CATEGORY_NAMES, checked, this);
+                builder.setPositiveButton("Сохранить", this);
+                builder.setNegativeButton("Назад", this);
+                builder.show();
+            } catch (Throwable t) {
+                Log.e(TAG, "Error showing categories dialog", t);
+            }
+        }
+
+        @Override
+        public void onClick(DialogInterface dialog, int which, boolean isChecked) {
+            if (checked != null && which >= 0 && which < checked.length) {
+                checked[which] = isChecked;
+            }
+        }
+
+        @Override
+        public void onClick(DialogInterface dialog, int which) {
+            if (which == DialogInterface.BUTTON_POSITIVE) {
+                if (checked != null) {
+                    StringBuilder sb = new StringBuilder();
+                    for (int i = 0; i < ALL_SB_CATEGORIES.length; i++) {
+                        if (checked[i]) {
+                            if (sb.length() > 0) sb.append(",");
+                            sb.append(ALL_SB_CATEGORIES[i]);
+                        }
+                    }
+                    SharedPreferences prefs = activity.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+                    prefs.edit().putString(KEY_SB_CATEGORIES, sb.toString()).apply();
+                    updateWebClientConfig(prefs);
+                    Toast.makeText(activity, "Категории сохранены", Toast.LENGTH_SHORT).show();
+                }
+            }
+            showSettingsDialog(activity);
+        }
+    }
+
+    public static void showSponsorBlockCategoriesDialog(final Activity activity) {
+        if (activity == null || activity.isFinishing()) return;
+        activity.runOnUiThread(new SbCategoriesDialogRunnable(activity));
     }
 
     public static void showSettingsDialog(final Activity activity) {
@@ -1713,9 +1864,11 @@ public class ProxyHelper {
             boolean sbEnabled = prefs.getBoolean(KEY_SB_ENABLED, true);
             String quality = prefs.getString(KEY_PREFERRED_QUALITY, "auto");
             float speed = prefs.getFloat(KEY_PLAYBACK_SPEED, 1.0f);
+            String sbCatsJson = getSbCategoriesArray(prefs).toString();
 
             String js = "if(window.__yttv_update_config) { window.__yttv_update_config({" +
                     "sbEnabled:" + sbEnabled + "," +
+                    "sbCategories:" + sbCatsJson + "," +
                     "quality:\"" + quality + "\"," +
                     "speed:" + speed +
                     "}); }";
@@ -1792,7 +1945,21 @@ public class ProxyHelper {
         // SponsorBlock
         sb.append("<div class='chk-row'>");
         sb.append("<input type='checkbox' id='chk_sb' name='sb_enabled' value='1' ").append(sbEn ? "checked" : "").append(">");
-        sb.append("<label for='chk_sb'><b>SponsorBlock:</b> автопропуск спонсоров, саморекламы, интро и аутро</label>");
+        sb.append("<label for='chk_sb'><b>SponsorBlock:</b> включить автопропуск сегментов</label>");
+        sb.append("</div>");
+
+        // SponsorBlock Categories
+        Set<String> curCats = getSbCategoriesSet(context);
+        sb.append("<label style='margin-top: 14px; font-size: 13px; color: #00e5ff;'>🎯 Пропускаемые категории SponsorBlock:</label>");
+        sb.append("<div style='display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 6px 0 14px 0; background: #141414; padding: 12px; border-radius: 8px; border: 1px solid #2a2a2a;'>");
+        for (int i = 0; i < ALL_SB_CATEGORIES.length; i++) {
+            String cId = ALL_SB_CATEGORIES[i];
+            boolean cChecked = curCats.contains(cId);
+            sb.append("<div class='chk-row' style='margin: 3px 0;'>");
+            sb.append("<input type='checkbox' id='cat_").append(cId).append("' name='cat_").append(cId).append("' value='1' ").append(cChecked ? "checked" : "").append(">");
+            sb.append("<label for='cat_").append(cId).append("' style='font-size: 13px;'>").append(SB_CATEGORY_NAMES[i]).append("</label>");
+            sb.append("</div>");
+        }
         sb.append("</div>");
 
         // Quality
