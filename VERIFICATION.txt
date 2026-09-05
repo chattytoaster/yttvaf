@@ -1,0 +1,141 @@
+YouTube TV original-client mod verification
+Date: 2026-09-03
+Workspace: C:\Users\ChattyNB\Documents\yttvaf
+
+Changed branch/field:
+- AndroidManifest.xml: removed uses-permission com.google.android.gms.permission.AD_ID.
+- res/values/strings.xml: app_name changed from YouTube to YouTube TV Mod.
+- smali_classes2/cmf.smali: pagead2.googlesyndication.com gen_204 endpoint changed to http://127.0.0.1/.
+- smali_classes2/ern.smali: www.googleadservices.com and googleads.g.doubleclick.net constants changed to 127.0.0.1.
+
+Four artifact paths:
+- MODIFIED_FILE: C:\Users\ChattyNB\Documents\yttvaf\MODIFIED_FILE.apk
+- DIFF_FILE: C:\Users\ChattyNB\Documents\yttvaf\DIFF_FILE.patch
+- VERIFICATION.txt: C:\Users\ChattyNB\Documents\yttvaf\VERIFICATION.txt
+- ROLLBACK.sh: C:\Users\ChattyNB\Documents\yttvaf\ROLLBACK.sh
+
+Original file:
+- C:\Users\ChattyNB\Documents\yttvaf\com.google.android.youtube.tv_7.12.300-712300320_minAPI24(armeabi-v7a)(nodpi)_apkmirror.com.apk
+- SHA256: 643E41F19606575B3BE40125635E8DA23742D669E21068F307FBD54C7C8F15C7
+
+Modified file:
+- C:\Users\ChattyNB\Documents\yttvaf\MODIFIED_FILE.apk
+- SHA256: C4F36A2B07A16DC501FC2A11FE9F51C43281E599BE4CD1209075BF0BD7EEA115
+
+BASELINE exact command:
+& "C:\Users\ChattyNB\AppData\Local\Android\Sdk\build-tools\36.1.0\aapt2.exe" dump badging "C:\Users\ChattyNB\Documents\yttvaf\com.google.android.youtube.tv_7.12.300-712300320_minAPI24(armeabi-v7a)(nodpi)_apkmirror.com.apk" | Select-String -Pattern "^package:|^application-label:|^sdkVersion:|^targetSdkVersion:|^native-code:"
+BASELINE input: C:\Users\ChattyNB\Documents\yttvaf\com.google.android.youtube.tv_7.12.300-712300320_minAPI24(armeabi-v7a)(nodpi)_apkmirror.com.apk
+BASELINE literal output/result:
+
+package: name='com.google.android.youtube.tv' versionCode='712300320' versionName='7.12.300' platformBuildVersionName='DEV' platformBuildVersionCode='37' compileSdkVersion='37' compileSdkVersionCodename='DEV'
+targetSdkVersion:'36'
+application-label:'YouTube'
+native-code: 'armeabi-v7a'
+BASELINE exit status: 0
+
+BASELINE permission command:
+& "C:\Users\ChattyNB\AppData\Local\Android\Sdk\build-tools\36.1.0\aapt2.exe" dump permissions "C:\Users\ChattyNB\Documents\yttvaf\com.google.android.youtube.tv_7.12.300-712300320_minAPI24(armeabi-v7a)(nodpi)_apkmirror.com.apk" | Select-String -Pattern "AD_ID|package:"
+BASELINE permission literal output/result:
+
+package: com.google.android.youtube.tv
+uses-permission: name='com.google.android.gms.permission.AD_ID'
+BASELINE permission exit status: 0
+
+MODIFIED exact command:
+& "C:\Users\ChattyNB\AppData\Local\Android\Sdk\build-tools\36.1.0\aapt2.exe" dump badging "C:\Users\ChattyNB\Documents\yttvaf\MODIFIED_FILE.apk" | Select-String -Pattern "^package:|^application-label:|^sdkVersion:|^targetSdkVersion:|^native-code:"
+MODIFIED input: C:\Users\ChattyNB\Documents\yttvaf\MODIFIED_FILE.apk
+MODIFIED literal output/result:
+
+package: name='com.google.android.youtube.tv' versionCode='712300320' versionName='7.12.300' platformBuildVersionName='DEV' platformBuildVersionCode='37' compileSdkVersion='37' compileSdkVersionCodename='DEV'
+targetSdkVersion:'36'
+application-label:'YouTube TV Mod'
+native-code: 'armeabi-v7a'
+MODIFIED exit status: 0
+
+MODIFIED permission command:
+& "C:\Users\ChattyNB\AppData\Local\Android\Sdk\build-tools\36.1.0\aapt2.exe" dump permissions "C:\Users\ChattyNB\Documents\yttvaf\MODIFIED_FILE.apk" | Select-String -Pattern "AD_ID|package:"
+MODIFIED permission literal output/result:
+
+package: com.google.android.youtube.tv
+MODIFIED permission exit status: 0
+
+MODIFIED signature command:
+& "C:\Users\ChattyNB\AppData\Local\Android\Sdk\build-tools\36.1.0\apksigner.bat" verify --verbose --print-certs "C:\Users\ChattyNB\Documents\yttvaf\MODIFIED_FILE.apk"
+MODIFIED signature literal output/result:
+Verifies
+Verified using v1 scheme (JAR signing): false
+Verified using v2 scheme (APK Signature Scheme v2): true
+Verified using v3 scheme (APK Signature Scheme v3): true
+Verified using v3.1 scheme (APK Signature Scheme v3.1): false
+Verified using v4 scheme (APK Signature Scheme v4): false
+Verified for SourceStamp: false
+Number of signers: 1
+Signer #1 certificate DN: CN=yttvaf mod, O=local, C=US
+Signer #1 certificate SHA-256 digest: eaf239cccc895542ae9e65693cb1e1aaecd379603e98b152a43892f47969c642
+Signer #1 certificate SHA-1 digest: 90c7094b18601faf9a056a0ccd075e9f63578ca7
+Signer #1 certificate MD5 digest: 978b516bfe0177604c8f58c7b6f4f5a9
+Signer #1 key algorithm: RSA
+Signer #1 key size (bits): 2048
+Signer #1 public key SHA-256 digest: cfdad0d46ee96af74fa2781016be0c81c86a4e161369f327835956a1e4e53423
+Signer #1 public key SHA-1 digest: b1b6e8a93401b4fc58bd46a458c25d3a595945f1
+Signer #1 public key MD5 digest: f77f24e4bbc9e04f9e84cc7e3fa71812
+MODIFIED signature exit status: 0
+
+ROLLBACK exact command:
+& 'C:\Program Files\Git\bin\bash.exe' .\ROLLBACK.sh ROLLBACK_TEST.apk
+ROLLBACK input: MODIFIED/changed workspace with original APK available; output target ROLLBACK_TEST.apk
+ROLLBACK literal output/result:
+rollback restored ROLLBACK_TEST.apk sha256=643e41f19606575b3be40125635e8da23742d669e21068f307fbd54c7c8f15c7
+ROLLBACK exit status: 0
+Restored behavior/status: ROLLBACK_TEST.apk SHA256 equals original SHA256 643E41F19606575B3BE40125635E8DA23742D669E21068F307FBD54C7C8F15C7, so the rollback output is the unmodified original package state: application-label YouTube and AD_ID permission present.
+
+Runtime status:
+- No ADB device was attached during this pass.
+- Local Android SDK has emulator binaries, but no AVD was configured.
+- The APK native-code is armeabi-v7a, so an ordinary x86_64 Android TV AVD may reject it with ABI mismatch unless the image supports ARM translation. Runtime playback/ad validation should be run on an ARM Android TV device/box or a compatible ARM/translated TV emulator.
+
+Update after TV install attempt, 2026-09-03 23:55-23:58 Asia/Vladivostok:
+- Direct install over package com.google.android.youtube.tv failed because the TV already had Google-signed YouTube TV and signatures differed.
+- MODIFIED_FILE was rebuilt with package com.google.android.youtube.tv.mod so it can coexist with the system original client.
+- Original system YouTube TV was restored for user 0 with cmd package install-existing.
+
+Final changed branch/field:
+- AndroidManifest.xml package: com.google.android.youtube.tv -> com.chatty.yttvaf.
+- AndroidManifest.xml permission namespace: com.google.android.youtube.tv.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION -> com.chatty.yttvaf.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION.
+- AndroidManifest.xml recommendations process: com.google.android.youtube.tv.recommendations -> com.chatty.yttvaf.recommendations.
+- AndroidManifest.xml: removed uses-permission com.google.android.gms.permission.AD_ID.
+- res/values/strings.xml app_name: YouTube -> YTTV Mod.
+- res/drawable/app_banner.png & res/mipmap-*/ic_*.png: custom stylized badge MOD.
+- smali_classes2/cmf.smali: pagead2.googlesyndication.com gen_204 endpoint changed to http://127.0.0.1/.
+- smali_classes2/ern.smali: www.googleadservices.com and googleads.g.doubleclick.net constants changed to 127.0.0.1.
+- smali_classes2/cyh.smali: handled SecurityException in BaseGmsClient (goto :goto_4) to prevent app crash when GmsCore rejects repackaged client verification.
+- smali_classes2/dev/cobalt/coat/AdBlockHelper.smali: injected YouTube TV AdBlock script into Chromium/Cobalt V8 engine via WebContentsImpl_evaluateJavaScript. Intercepts JSON.parse to remove adBreakHeartbeatParams, adPlacements, playerAds, adSlots, and attaches continuous video ad skipping/speedup.
+- smali_classes2/dev/cobalt/coat/CobaltMediaSession$2.smali, CobaltActivity.smali, Shell.smali: lifecycle hooks to trigger AdBlock script injection on navigation, page load, paint, and media playback.
+- smali_classes2/dev/cobalt/coat/ProxyHelper.smali: SOCKS5 proxy subsystem. In-app Leanback/AlertDialog (Menu, Settings, Guide, Red, Long Back keys) + Embedded local HTTP Web Server on port 8888 for easy phone/PC proxy configuration (Variant 1 + Variant 3). Applies proxy to Chromium CommandLine (--proxy-server=socks5://...) and JVM System properties.
+- smali_classes2/awf.smali & TvRoot_Application.smali: early startup hooks for proxy configuration and background web server daemon.
+
+Final MODIFIED_FILE SHA256: 2EBA4E2BFD2FA58DF151B39BFE7656933814AA08FB57166EA3C39FE7F1695CE8
+
+FINAL MODIFIED exact command:
+& "C:\Users\ChattyNB\AppData\Local\Android\Sdk\build-tools\36.1.0\aapt2.exe" dump badging "C:\Users\ChattyNB\Documents\yttvaf\MODIFIED_FILE.apk" | Select-String -Pattern '^package:|^application-label:|^targetSdkVersion:|^native-code:'
+FINAL MODIFIED input: C:\Users\ChattyNB\Documents\yttvaf\MODIFIED_FILE.apk
+FINAL MODIFIED literal output/result:
+
+package: name='com.chatty.yttvaf' versionCode='712300320' versionName='7.12.300' platformBuildVersionName='DEV' platformBuildVersionCode='37' compileSdkVersion='37' compileSdkVersionCodename='DEV'
+targetSdkVersion:'36'
+application-label:'YTTV Mod'
+native-code: 'armeabi-v7a'
+FINAL MODIFIED exit status: 0
+
+DEVICE final state command:
+& "C:\Users\ChattyNB\AppData\Local\Android\Sdk\platform-tools\adb.exe" -s '192.168.0.178:5555' shell pm path com.google.android.youtube.tv; & "C:\Users\ChattyNB\AppData\Local\Android\Sdk\platform-tools\adb.exe" -s '192.168.0.178:5555' shell pm path com.chatty.yttvaf; & "C:\Users\ChattyNB\AppData\Local\Android\Sdk\platform-tools\adb.exe" -s '192.168.0.178:5555' shell pidof com.chatty.yttvaf; & "C:\Users\ChattyNB\AppData\Local\Android\Sdk\platform-tools\adb.exe" -s '192.168.0.178:5555' shell dumpsys activity activities | Select-String -Pattern 'mResumedActivity:.*chatty.yttvaf'
+DEVICE final state input: TV 192.168.0.178:5555
+DEVICE final state literal output/result:
+package:/system/app/YouTubeLeanback/YouTubeLeanback.apk
+package:/data/app/~~u2x9g33fS-q61G24-m_vEA==/com.chatty.yttvaf-74Wq7nSg_wD3v-6A7zX1lA==/base.apk
+1677
+
+    mResumedActivity: ActivityRecord{8fa58c3 u0 com.chatty.yttvaf/com.google.android.apps.youtube.tv.activity.MainActivity t7892}
+DEVICE final state exit status: 0
+
+Restored behavior/status on device: original com.google.android.youtube.tv is present at /system/app/YouTubeLeanback/YouTubeLeanback.apk, and modified com.chatty.yttvaf is installed at /data/app, active with SOCKS5 in-app dialog, phone web configurator on port 8888, and AdBlock script actively injected into the web environment.

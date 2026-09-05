@@ -1,0 +1,18 @@
+# Build artifacts and binaries
+*.apk
+*.idsig
+*.class
+scratch/bin/
+scratch/dex/
+scratch/test_out/
+work/
+
+# Temporary files and logs
+*.png
+*.log
+*.tmp
+scratch/test.txt
+
+# OS files
+.DS_Store
+Thumbs.db
