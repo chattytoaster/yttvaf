@@ -12,6 +12,8 @@ work/
 *.log
 *.tmp
 scratch/test.txt
+scratch/*.js
+scratch/*.html
 
 # OS files
 .DS_Store

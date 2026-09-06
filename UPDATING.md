@@ -171,7 +171,7 @@ python tools/generate_proxy_helper.py
 
 3. Проверьте логи инициализации ProxyHelper:
    `ash
-   adb logcat -s ProxyHelper:V
+   adb logcat -s YTTV_ProxyHelper cobalt
    `
    Убедитесь, что в логах присутствуют сообщения:
    - Starting WebServer on port 8888

@@ -119,6 +119,7 @@ public class ProxyHelper {
     private static volatile ProxyConfig sCurrentConfig = null;
     private static volatile Context sContext = null;
     private static volatile long sNativeWebContents = 0;
+    private static volatile long sInjectedWebContentsPtr = 0;
 
     private static class LruCache<K, V> extends LinkedHashMap<K, V> {
         private final int maxEntries;
@@ -133,6 +134,69 @@ public class ProxyHelper {
     }
 
     private static final Map<String, String> sSponsorBlockCache = Collections.synchronizedMap(new LruCache<String, String>(200));
+    private static final Map<String, Long> sLastFetchTime = Collections.synchronizedMap(new LruCache<String, Long>(100));
+    private static volatile boolean sWatchdogRunning = false;
+
+    public static void onTitleChanged(String title) {
+        if (title == null || !title.startsWith("YTTV_VID:")) return;
+        try {
+            String rest = title.substring(9).trim();
+            int colon = rest.indexOf(':');
+            final String vid = (colon != -1) ? rest.substring(0, colon) : rest;
+            if (vid != null && vid.length() == 11) {
+                Log.i(TAG, "SponsorBlock detected video ID: " + vid);
+                fetchAndInjectSegments(vid);
+            }
+        } catch (Throwable t) {
+            Log.e(TAG, "Error in onTitleChanged", t);
+        }
+    }
+
+    public static void fetchAndInjectSegments(final String vid) {
+        if (vid == null || vid.length() != 11) return;
+        Long last = sLastFetchTime.get(vid);
+        long now = System.currentTimeMillis();
+        if (last != null && (now - last < 4000)) {
+            return;
+        }
+        sLastFetchTime.put(vid, now);
+
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    String json = fetchSponsorBlockSegments(vid);
+                    if (json == null || json.trim().isEmpty()) {
+                        json = "[]";
+                    }
+                    Log.i(TAG, "Injecting SponsorBlock segments for " + vid + " (len=" + json.length() + ")...");
+                    evaluateJs("if(window.__yttv_set_segments) window.__yttv_set_segments('" + vid + "', " + json + ");");
+                } catch (Throwable t) {
+                    Log.e(TAG, "Failed to fetch/inject SponsorBlock for " + vid, t);
+                }
+            }
+        }, "YTTV-SBFetch-" + vid).start();
+    }
+
+    public static synchronized void startWatchdog(final Context context) {
+        if (sWatchdogRunning || context == null) return;
+        sWatchdogRunning = true;
+        Thread t = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                while (!Thread.currentThread().isInterrupted()) {
+                    try {
+                        Thread.sleep(2000);
+                        if (sNativeWebContents != 0) {
+                            evaluateJs("if(window.__yttv_check_video){window.__yttv_check_video();}");
+                        }
+                    } catch (Throwable ignored) {}
+                }
+            }
+        }, "YTTV-SBWatchdog");
+        t.setDaemon(true);
+        t.start();
+    }
 
     public static void applyProxy(Context context) {
         if (context == null) {
@@ -205,10 +269,17 @@ public class ProxyHelper {
     public static void onWebContentsAvailable(long nativePtr) {
         if (nativePtr == 0) return;
         sNativeWebContents = nativePtr;
-        Log.i(TAG, "WebContents available: " + nativePtr);
+        if (sInjectedWebContentsPtr == nativePtr) {
+            return;
+        }
+        sInjectedWebContentsPtr = nativePtr;
+        Log.i(TAG, "WebContents initialized once: " + nativePtr);
         if (sContext != null) {
             try {
                 startWebServer(sContext);
+            } catch(Throwable ignored) {}
+            try {
+                startWatchdog(sContext);
             } catch(Throwable ignored) {}
             String script = buildModScript(sContext);
             evaluateJs(script);
@@ -1157,6 +1228,12 @@ public class ProxyHelper {
         float speed = prefs.getFloat(KEY_PLAYBACK_SPEED, 1.0f);
 
         return "(function() {\n" +
+                "    function getPlayer() {\n" +
+                "        return document.getElementById('ytlr-player__player-container-player') ||\n" +
+                "               document.querySelector('.html5-video-player') ||\n" +
+                "               document.getElementById('movie_player');\n" +
+                "    }\n" +
+                "\n" +
                 "    if (window.__yttv_mod_installed) {\n" +
                 "        if (window.__yttv_update_config) {\n" +
                 "            window.__yttv_update_config({\n" +
@@ -1210,7 +1287,9 @@ public class ProxyHelper {
                 "        var origParse = JSON.parse;\n" +
                 "        JSON.parse = function() {\n" +
                 "            var r = origParse.apply(this, arguments);\n" +
-                "            if (r && typeof r === 'object') stripAds(r);\n" +
+                "            if (r && typeof r === 'object') {\n" +
+                "                stripAds(r);\n" +
+                "            }\n" +
                 "            return r;\n" +
                 "        };\n" +
                 "    } catch(e) {}\n" +
@@ -1224,7 +1303,7 @@ public class ProxyHelper {
                 "    /* 4. QUALITY CONTROL */\n" +
                 "    function applyQuality() {\n" +
                 "        try {\n" +
-                "            var p = document.getElementById('movie_player');\n" +
+                "            var p = getPlayer();\n" +
                 "            if (!p) return;\n" +
                 "            var pref = window.__yttv_config.quality;\n" +
                 "            if (pref === 'auto') {\n" +
@@ -1258,94 +1337,130 @@ public class ProxyHelper {
                 "            for (var i = 0; i < vids.length; i++) {\n" +
                 "                if (vids[i].playbackRate !== speed) vids[i].playbackRate = speed;\n" +
                 "            }\n" +
-                "            var p = document.getElementById('movie_player');\n" +
+                "            var p = getPlayer();\n" +
                 "            if (p && p.getPlaybackRate && p.setPlaybackRate) {\n" +
                 "                if (p.getPlaybackRate() !== speed) p.setPlaybackRate(speed);\n" +
                 "            }\n" +
                 "        } catch(e) {}\n" +
                 "    }\n" +
                 "\n" +
-                "    /* 6. SPONSORBLOCK */\n" +
+                "    /* 6. SPONSORBLOCK (Java Native Bridge) */\n" +
                 "    var currentVid = null;\n" +
                 "    var segments = [];\n" +
+                "    var rawSegments = [];\n" +
                 "    var skippedUuids = {};\n" +
-                "    function fetchSegments(vid) {\n" +
-                "        if (!vid || !window.__yttv_config.sbEnabled) return;\n" +
-                "        currentVid = vid;\n" +
-                "        segments = [];\n" +
-                "        skippedUuids = {};\n" +
-                "        var cats = window.__yttv_config.sbCategories || [\"sponsor\",\"selfpromo\",\"interaction\",\"intro\",\"outro\",\"preview\",\"filler\",\"music_offtopic\"];\n" +
-                "        if (!Array.isArray(cats) || cats.length === 0) return;\n" +
-                "        var catParam = encodeURIComponent(JSON.stringify(cats));\n" +
-                "        var primaryUrl = 'https://sponsor.ajay.app/api/skipSegments?videoID=' + encodeURIComponent(vid) + '&categories=' + catParam;\n" +
-                "        var backupUrl = 'https://api.sponsor.ajay.app/api/skipSegments?videoID=' + encodeURIComponent(vid) + '&categories=' + catParam;\n" +
+                "    var segmentsCache = {};\n" +
+                "    var pendingFetches = {};\n" +
                 "\n" +
-                "        function handleData(txt) {\n" +
+                "    function checkVideo() {\n" +
+                "        var p = getPlayer();\n" +
+                "        var vid = null;\n" +
+                "        if (p && typeof p.getVideoData === 'function') {\n" +
                 "            try {\n" +
-                "                var data = JSON.parse(txt);\n" +
-                "                if (Array.isArray(data) && data.length > 0) {\n" +
-                "                    segments = data.map(function(item) {\n" +
-                "                        return {\n" +
-                "                            start: item.segment[0],\n" +
-                "                            end: item.segment[1],\n" +
-                "                            category: item.category,\n" +
-                "                            uuid: item.UUID || (item.segment[0] + '_' + item.segment[1])\n" +
-                "                        };\n" +
-                "                    });\n" +
-                "                    console.log('[YTTV Mod] Loaded ' + segments.length + ' SponsorBlock segments for ' + vid);\n" +
-                "                    showOsd('🛡️ SponsorBlock: ' + segments.length + ' сегм.', '#00e676', 2000);\n" +
+                "                var vd = p.getVideoData();\n" +
+                "                if (vd && vd.video_id && typeof vd.video_id === 'string' && vd.video_id.length === 11) {\n" +
+                "                    vid = vd.video_id;\n" +
                 "                }\n" +
-                "            } catch(e) {\n" +
-                "                console.error('[YTTV Mod] SB parse error', e);\n" +
-                "            }\n" +
+                "            } catch(e) {}\n" +
                 "        }\n" +
-                "\n" +
-                "        function doRequest(url, fallback) {\n" +
+                "        if (!vid && p && typeof p.getVideoUrl === 'function') {\n" +
                 "            try {\n" +
-                "                var xhr = new XMLHttpRequest();\n" +
-                "                xhr.open('GET', url, true);\n" +
-                "                xhr.timeout = 5000;\n" +
-                "                xhr.onload = function() {\n" +
-                "                    if (xhr.status === 200) {\n" +
-                "                        handleData(xhr.responseText);\n" +
-                "                    } else if (xhr.status === 404) {\n" +
-                "                        console.log('[YTTV Mod] No SB segments for ' + vid);\n" +
-                "                    } else if (fallback) {\n" +
-                "                        doRequest(fallback, null);\n" +
-                "                    }\n" +
-                "                };\n" +
-                "                xhr.onerror = function() {\n" +
-                "                    if (fallback) doRequest(fallback, null);\n" +
-                "                };\n" +
-                "                xhr.ontimeout = function() {\n" +
-                "                    if (fallback) doRequest(fallback, null);\n" +
-                "                };\n" +
-                "                xhr.send();\n" +
-                "            } catch(e) {\n" +
-                "                if (fallback) doRequest(fallback, null);\n" +
-                "            }\n" +
+                "                var u = p.getVideoUrl();\n" +
+                "                var m = u && u.match(/[?&]v=([a-zA-Z0-9_-]{11})/);\n" +
+                "                if (m) vid = m[1];\n" +
+                "            } catch(e) {}\n" +
+                "        }\n" +
+                "        if (!vid) {\n" +
+                "            var m2 = (location.hash || location.href).match(/[?&]v=([a-zA-Z0-9_-]{11})/);\n" +
+                "            if (m2) vid = m2[1];\n" +
                 "        }\n" +
                 "\n" +
-                "        doRequest(primaryUrl, backupUrl);\n" +
+                "        var isWatch = (location.hash || location.href).indexOf('watch') !== -1;\n" +
+                "        if (!isWatch && !vid) {\n" +
+                "            if (currentVid !== null) {\n" +
+                "                currentVid = null;\n" +
+                "                segments = [];\n" +
+                "                rawSegments = [];\n" +
+                "                skippedUuids = {};\n" +
+                "            }\n" +
+                "            return;\n" +
+                "        }\n" +
+                "\n" +
+                "        if (vid) {\n" +
+                "            if (vid !== currentVid) {\n" +
+                "                currentVid = vid;\n" +
+                "                skippedUuids = {};\n" +
+                "                applyQuality();\n" +
+                "                if (segmentsCache[vid]) {\n" +
+                "                    rawSegments = segmentsCache[vid];\n" +
+                "                    filterSegments();\n" +
+                "                    if (segments.length > 0) {\n" +
+                "                        console.log('[YTTV Mod] Loaded ' + segments.length + ' SponsorBlock segments for ' + vid);\n" +
+                "                        showOsd('🛡️ SponsorBlock: ' + segments.length + ' сегм.', '#00e676', 2500);\n" +
+                "                    }\n" +
+                "                } else if (!pendingFetches[vid]) {\n" +
+                "                    pendingFetches[vid] = Date.now();\n" +
+                "                    segments = [];\n" +
+                "                    rawSegments = [];\n" +
+                "                    document.title = 'YTTV_VID:' + vid + ':' + Date.now();\n" +
+                "                } else if (Date.now() - pendingFetches[vid] > 5000) {\n" +
+                "                    pendingFetches[vid] = Date.now();\n" +
+                "                    document.title = 'YTTV_VID:' + vid + ':' + Date.now();\n" +
+                "                }\n" +
+                "            }\n" +
+                "        }\n" +
                 "    }\n" +
+                "    window.__yttv_check_video = checkVideo;\n" +
+                "\n" +
+                "    function filterSegments() {\n" +
+                "        segments = [];\n" +
+                "        if (Array.isArray(rawSegments) && rawSegments.length > 0) {\n" +
+                "            var cats = window.__yttv_config.sbCategories || [\"sponsor\",\"selfpromo\",\"interaction\",\"intro\",\"outro\",\"preview\",\"filler\",\"music_offtopic\"];\n" +
+                "            for (var i = 0; i < rawSegments.length; i++) {\n" +
+                "                var item = rawSegments[i];\n" +
+                "                if (!item || !item.segment) continue;\n" +
+                "                if (cats.length > 0 && cats.indexOf(item.category) === -1) continue;\n" +
+                "                segments.push({\n" +
+                "                    start: item.segment[0],\n" +
+                "                    end: item.segment[1],\n" +
+                "                    category: item.category,\n" +
+                "                    uuid: item.UUID || (item.segment[0] + '_' + item.segment[1])\n" +
+                "                });\n" +
+                "            }\n" +
+                "        }\n" +
+                "    }\n" +
+                "\n" +
+                "    window.__yttv_set_segments = function(vid, data) {\n" +
+                "        if (!vid) return;\n" +
+                "        segmentsCache[vid] = Array.isArray(data) ? data : [];\n" +
+                "        if (vid === currentVid) {\n" +
+                "            rawSegments = segmentsCache[vid];\n" +
+                "            skippedUuids = {};\n" +
+                "            filterSegments();\n" +
+                "            if (segments.length > 0) {\n" +
+                "                console.log('[YTTV Mod] Loaded ' + segments.length + ' SponsorBlock segments for ' + vid);\n" +
+                "                showOsd('🛡️ SponsorBlock: ' + segments.length + ' сегм.', '#00e676', 2500);\n" +
+                "            }\n" +
+                "        }\n" +
+                "    };\n" +
                 "\n" +
                 "    function checkSponsorBlock(curTime) {\n" +
                 "        if (!window.__yttv_config.sbEnabled || segments.length === 0 || curTime < 0) return;\n" +
-                "        var p = document.getElementById('movie_player');\n" +
-                "        var v = document.querySelector('video');\n" +
-                "        var cats = window.__yttv_config.sbCategories || [];\n" +
+                "        var p = getPlayer();\n" +
                 "        for (var i = 0; i < segments.length; i++) {\n" +
                 "            var s = segments[i];\n" +
                 "            if (skippedUuids[s.uuid]) continue;\n" +
-                "            if (cats.length > 0 && cats.indexOf(s.category) === -1) continue;\n" +
-                "            if (curTime >= (s.start - 0.25) && curTime < (s.end - 0.5)) {\n" +
+                "            if (curTime >= (s.start - 0.15) && curTime < (s.end - 0.05)) {\n" +
                 "                skippedUuids[s.uuid] = true;\n" +
                 "                var skipTo = s.end;\n" +
                 "                try {\n" +
-                "                    if (p && p.seekTo) p.seekTo(skipTo, true);\n" +
+                "                    if (p && typeof p.seekTo === 'function') p.seekTo(skipTo, true);\n" +
                 "                } catch(e) {}\n" +
                 "                try {\n" +
-                "                    if (v && isFinite(skipTo)) v.currentTime = skipTo;\n" +
+                "                    var vids = document.getElementsByTagName('video');\n" +
+                "                    for (var vi = 0; vi < vids.length; vi++) {\n" +
+                "                        if (isFinite(skipTo)) vids[vi].currentTime = skipTo;\n" +
+                "                    }\n" +
                 "                } catch(e) {}\n" +
                 "\n" +
                 "                var catLabel = 'Спонсор';\n" +
@@ -1356,7 +1471,8 @@ public class ProxyHelper {
                 "                else if (s.category === 'preview') catLabel = 'Анонс';\n" +
                 "                else if (s.category === 'filler') catLabel = 'Вода/Филлер';\n" +
                 "                else if (s.category === 'music_offtopic') catLabel = 'Немузыкальная часть';\n" +
-                "                var diff = Math.round(s.end - s.start);\n" +
+                "                var diff = Math.max(1, Math.round(s.end - s.start));\n" +
+                "                console.log('[YTTV Mod] Skipped ' + s.category + ' (' + diff + 's) to ' + skipTo);\n" +
                 "                showOsd('⏩ Пропущено: ' + catLabel + ' (' + diff + ' сек)', '#00e676', 3000);\n" +
                 "                break;\n" +
                 "            }\n" +
@@ -1366,13 +1482,10 @@ public class ProxyHelper {
                 "    /* 7. EXPOSED CONTROLS */\n" +
                 "    window.__yttv_update_config = function(cfg) {\n" +
                 "        if (!cfg) return;\n" +
-                "        var oldCats = JSON.stringify(window.__yttv_config.sbCategories || []);\n" +
                 "        for (var k in cfg) window.__yttv_config[k] = cfg[k];\n" +
                 "        applySpeed();\n" +
                 "        applyQuality();\n" +
-                "        if (cfg.sbCategories && JSON.stringify(cfg.sbCategories) !== oldCats && currentVid) {\n" +
-                "            fetchSegments(currentVid);\n" +
-                "        }\n" +
+                "        filterSegments();\n" +
                 "    };\n" +
                 "    window.__yttv_set_speed = function(val) {\n" +
                 "        window.__yttv_config.speed = val;\n" +
@@ -1391,11 +1504,9 @@ public class ProxyHelper {
                 "    };\n" +
                 "\n" +
                 "    /* 8. MAIN TICKER (every 250ms) */\n" +
-                "    var tickCount = 0;\n" +
                 "    setInterval(function() {\n" +
                 "        try {\n" +
-                "            tickCount++;\n" +
-                "            var p = document.getElementById('movie_player');\n" +
+                "            var p = getPlayer();\n" +
                 "            var vids = document.getElementsByTagName('video');\n" +
                 "            var ad = document.querySelector('.ad-showing, .ad-interrupting, .ytp-ad-player-overlay, [class*=\"ad-showing\"]');\n" +
                 "            if (ad) {\n" +
@@ -1411,31 +1522,11 @@ public class ProxyHelper {
                 "                applySpeed();\n" +
                 "            }\n" +
                 "\n" +
-                "            var vid = null;\n" +
-                "            if (p && p.getVideoData) {\n" +
-                "                try {\n" +
-                "                    var vd = p.getVideoData();\n" +
-                "                    if (vd && vd.video_id) vid = vd.video_id;\n" +
-                "                } catch(e) {}\n" +
-                "            }\n" +
-                "            if (!vid && p && p.getVideoUrl) {\n" +
-                "                try {\n" +
-                "                    var u = p.getVideoUrl();\n" +
-                "                    var m = u && u.match(/[?&]v=([a-zA-Z0-9_-]{11})/);\n" +
-                "                    if (m) vid = m[1];\n" +
-                "                } catch(e) {}\n" +
-                "            }\n" +
-                "            if (!vid) {\n" +
-                "                var m2 = (location.hash || location.href).match(/[?&]v=([a-zA-Z0-9_-]{11})/);\n" +
-                "                if (m2) vid = m2[1];\n" +
-                "            }\n" +
-                "            if (vid && vid !== currentVid) {\n" +
-                "                fetchSegments(vid);\n" +
-                "                applyQuality();\n" +
-                "            }\n" +
-                "            if (vid && segments.length > 0) {\n" +
+                "            checkVideo();\n" +
+                "\n" +
+                "            if (segments.length > 0) {\n" +
                 "                var curTime = -1;\n" +
-                "                if (p && p.getCurrentTime) {\n" +
+                "                if (p && typeof p.getCurrentTime === 'function') {\n" +
                 "                    try { curTime = p.getCurrentTime(); } catch(e) {}\n" +
                 "                }\n" +
                 "                if ((curTime < 0 || isNaN(curTime)) && vids.length > 0) {\n" +
@@ -1459,36 +1550,60 @@ public class ProxyHelper {
             return sSponsorBlockCache.get(videoId);
         }
         String result = "[]";
-        try {
-            String urlStr = "https://sponsor.ajay.app/api/skipSegments?videoID=" + videoId +
-                    "&categories=%5B%22sponsor%22,%22selfpromo%22,%22interaction%22,%22intro%22,%22outro%22,%22preview%22,%22filler%22%5D";
-            URL url = new URL(urlStr);
-            Proxy proxy = Proxy.NO_PROXY;
-            if (sProxyEnabled && sCurrentConfig != null) {
-                proxy = new Proxy(Proxy.Type.SOCKS, new InetSocketAddress(sCurrentConfig.host, sCurrentConfig.port));
-            }
-            HttpURLConnection conn = (HttpURLConnection) url.openConnection(proxy);
-            conn.setConnectTimeout(4000);
-            conn.setReadTimeout(4000);
-            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (SmartHub; SMART-TV; U; Linux/SmartTV) AppleWebKit/538.1");
-            int code = conn.getResponseCode();
-            if (code == 200) {
-                BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream(), "UTF-8"));
-                StringBuilder sb = new StringBuilder();
-                String line;
-                while ((line = br.readLine()) != null) {
-                    sb.append(line);
-                }
-                br.close();
-                result = sb.toString();
-            } else {
-                result = "[]";
-            }
-            conn.disconnect();
-        } catch (Throwable t) {
-            Log.w(TAG, "Failed to fetch SponsorBlock for " + videoId + ": " + t.getMessage());
-            result = "[]";
+        String[] endpoints = new String[]{
+                "https://sponsor.ajay.app/api/skipSegments?videoID=" + videoId +
+                        "&categories=%5B%22sponsor%22,%22selfpromo%22,%22interaction%22,%22intro%22,%22outro%22,%22preview%22,%22filler%22,%22music_offtopic%22%5D",
+                "https://api.sponsor.ajay.app/api/skipSegments?videoID=" + videoId +
+                        "&categories=%5B%22sponsor%22,%22selfpromo%22,%22interaction%22,%22intro%22,%22outro%22,%22preview%22,%22filler%22,%22music_offtopic%22%5D"
+        };
+
+        Proxy[] proxies;
+        if (sProxyEnabled) {
+            proxies = new Proxy[]{
+                    new Proxy(Proxy.Type.SOCKS, new InetSocketAddress("127.0.0.1", LOCAL_SOCKS_PORT)),
+                    Proxy.NO_PROXY
+            };
+        } else {
+            proxies = new Proxy[]{Proxy.NO_PROXY};
         }
+
+        boolean success = false;
+        for (Proxy proxy : proxies) {
+            if (success) break;
+            for (String urlStr : endpoints) {
+                HttpURLConnection conn = null;
+                try {
+                    URL url = new URL(urlStr);
+                    conn = (HttpURLConnection) url.openConnection(proxy);
+                    conn.setConnectTimeout(3500);
+                    conn.setReadTimeout(3500);
+                    conn.setRequestProperty("User-Agent", "Mozilla/5.0 (SmartHub; SMART-TV; U; Linux/SmartTV) AppleWebKit/538.1");
+                    int code = conn.getResponseCode();
+                    if (code == 200) {
+                        BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream(), "UTF-8"));
+                        StringBuilder sb = new StringBuilder();
+                        String line;
+                        while ((line = br.readLine()) != null) {
+                            sb.append(line);
+                        }
+                        br.close();
+                        result = sb.toString();
+                        success = true;
+                        break;
+                    } else if (code == 404) {
+                        result = "[]";
+                        success = true;
+                        break;
+                    }
+                } catch (Throwable ignored) {
+                } finally {
+                    if (conn != null) {
+                        try { conn.disconnect(); } catch (Throwable ignored) {}
+                    }
+                }
+            }
+        }
+
         sSponsorBlockCache.put(videoId, result);
         return result;
     }

@@ -40,6 +40,7 @@ def compile_java():
 
     cmd_javac = [
         JAVAC,
+        "-encoding", "UTF-8",
         "-source", "8",
         "-target", "8",
         "-cp", ANDROID_JAR,

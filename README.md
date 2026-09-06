@@ -2,6 +2,9 @@
 
 Модифицированный клиент **YouTube для Android TV** на базе движка Cobalt / Leanback с расширенными возможностями для обхода блокировок, блокировки рекламы, пропуска интеграций и кастомизации интерфейса под большой экран.
 
+[![Latest Release](https://img.shields.io/github/v/release/chattytoaster/yttvaf?style=for-the-badge&color=blue)](https://github.com/chattytoaster/yttvaf/releases/latest)
+[![Download APK](https://img.shields.io/badge/Download-APK-success?style=for-the-badge&logo=android)](https://github.com/chattytoaster/yttvaf/releases/latest)
+
 ---
 
 ## 🚀 Основные возможности

@@ -22,29 +22,31 @@ def get_git_token():
 def main():
     token = get_git_token()
     repo = "chattytoaster/yttvaf"
-    tag = "v1.0.0"
-    title = "YouTube TV Mod v1.0.0 (SOCKS5, SponsorBlock, Web UI)"
-    body = """# YouTube TV Mod v1.0.0
+    tag = sys.argv[1] if len(sys.argv) > 1 else "v1.0.1"
+    title = sys.argv[2] if len(sys.argv) > 2 else f"YouTube TV Mod {tag} (SponsorBlock Fix & Category Selector)"
+    body = f"""# YouTube TV Mod {tag}
 
-Модифицированный клиент **YouTube для Android TV** (пакет `com.chatty.yttvaf`) на базе движка Cobalt / Leanback.
+Обновление модифицированного клиента **YouTube для Android TV** (пакет `com.chatty.yttvaf`) на базе движка Cobalt / Leanback.
 
-### ✨ Ключевые возможности:
-- ⚡ **Встроенный SOCKS5 Прокси**: локальный loopback-туннель (порт 9876) с поддержкой аутентификации для работы на Smart TV без сторонних VPN.
-- 🌐 **Локальный Web-интерфейс (`:8888`)**: полноценное управление со смартфона или ПК (ввод прокси-строки, SponsorBlock, выбор категорий, качество, скорость).
-- ⚙️ **Интерактивное меню настроек на ТВ**: нативный диалог по кнопке `MENU` / `SETTINGS` / `Красная` кнопка пульта.
-- ⏩ **SponsorBlock с выбором категорий**:
-  - Прямой защищённый HTTPS-клиент с зеркалом.
-  - Настраиваемый пропуск всех 8 категорий (спонсорские блоки, самореклама, интеракции, интро, аутро, превью, филлеры, немузыкальные паузы) прямо на экране ТВ или через Web UI.
-- 📺 **Фиксация качества видео**: Авто, 720p, 1080p, 1440p, 2160p (4K).
-- ⚡ **Управление скоростью**: от 1.0x до 2.0x с пульта или через Web UI.
-- 🛡️ **Блокировка рекламы**: вырезание рекламных структур из API и автоскип preroll/midroll.
-- 🎮 **Горячие клавиши пульта**: Red — Настройки, Green — Скорость, Yellow — SponsorBlock, Blue — Качество.
-- 🔄 **Инструкции по обновлению**: поддержка лёгкого переноса мода на новые версии оригинального APK (см. [UPDATING.md](https://github.com/chattytoaster/yttvaf/blob/main/UPDATING.md)).
+### 🌟 Что нового в {tag}:
+- 🛠️ **Полное исправление работы SponsorBlock**:
+  - Устранена циклическая повторная инъекция скрипта при обновлениях медиа-сессии.
+  - Исключена перезапись активного Video ID фоновыми запросами рекомендаций (`JSON.parse`).
+  - Добавлено изолированное кэширование сегментов (`segmentsCache`) для надёжного пропуска при любых переключениях видео.
+  - Оптимизировано окно детекции таймкодов для мгновенного и бесшовного автоскипа вставок.
+- 🎯 **Интерактивный выбор категорий SponsorBlock**:
+  - Нативный диалог мульти-выбора на экране ТВ (меню по кнопке MENU / Red ➔ «Категории SponsorBlock»).
+  - Удобные чекбоксы в Web UI (`:8888`) для всех 8 категорий (спонсорство, самореклама, интеракции, интро, аутро, превью, филлеры, немузыкальные паузы в клипах).
+- 🔤 **Поддержка UTF-8 кодировки**: безупречное отображение русских текстов в Leanback-диалогах и OSD на телевизоре.
+- ⚡ **Встроенный SOCKS5 Прокси**: локальный loopback-туннель на порту 9876 с поддержкой авторизации.
+- 📺 **Фиксация качества видео**: до 4K 2160p с пульта и через Web UI.
+- ⚡ **Регулировка скорости**: от 1.0x до 2.0x с горячими клавишами.
+- 📖 **Подробные руководства**: инструкции по установке в [README.md](https://github.com/chattytoaster/yttvaf/blob/main/README.md) и руководство по переносу мода на новые версии YouTube в [UPDATING.md](https://github.com/chattytoaster/yttvaf/blob/main/UPDATING.md).
 
 ### 📦 Установка:
 ```bash
 adb connect <IP_ТВ>:5555
-adb install -r YouTubeTV-Mod-v1.0.0.apk
+adb install -r YouTubeTV-Mod-{tag}.apk
 adb shell monkey -p com.chatty.yttvaf -c android.intent.category.LEANBACK_LAUNCHER 1
 ```
 """
@@ -95,7 +97,7 @@ adb shell monkey -p com.chatty.yttvaf -c android.intent.category.LEANBACK_LAUNCH
     # 2. Upload APK asset
     apk_path = os.path.join(os.path.dirname(__file__), "..", "MODIFIED_FILE.apk")
     apk_size = os.path.getsize(apk_path)
-    asset_name = "YouTubeTV-Mod-v1.0.0.apk"
+    asset_name = f"YouTubeTV-Mod-{tag}.apk"
     upload_url = f"{upload_base}?name={urllib.parse.quote(asset_name)}"
 
     print(f"Uploading {asset_name} ({apk_size} bytes) to {upload_url}...")
