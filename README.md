@@ -1,85 +1,95 @@
 # YouTube TV Mod (com.chatty.yttvaf)
 
-Модифицированный клиент **YouTube для Android TV** на базе движка Cobalt / Leanback с расширенными возможностями для обхода блокировок, блокировки рекламы, пропуска интеграций и кастомизации интерфейса под большой экран.
+Modified **YouTube for Android TV** client based on the Cobalt / Leanback engine with bypass capabilities, ad blocking, SponsorBlock integration with custom category selection, floating toast notifications, multilingual support (English & Russian), and big-screen UI enhancements.
 
 [![Latest Release](https://img.shields.io/github/v/release/chattytoaster/yttvaf?style=for-the-badge&color=blue)](https://github.com/chattytoaster/yttvaf/releases/latest)
 [![Download APK](https://img.shields.io/badge/Download-APK-success?style=for-the-badge&logo=android)](https://github.com/chattytoaster/yttvaf/releases/latest)
 
----
-
-## 🚀 Основные возможности
-
-### ⚡ Встроенный SOCKS5 Прокси (Bypass Subsystem)
-- Поддержка протокола `socks5://user:pass@host:port` с аутентификацией.
-- Локальный туннель (Local SOCKS loopback на порту 9876), прозрачно проксирующий весь сетевой стек Chromium / Cobalt и Cronet.
-- Позволяет смотреть YouTube на Smart TV без установки дополнительных VPN-приложений или настройки роутера.
-
-### 🌐 Локальный Web-интерфейс управления (`:8888`)
-- Встроенный легковесный HTTP-сервер на порту `8888`.
-- При запуске приложение показывает OSD-уведомление с реальным IP-адресом ТВ в локальной сети:
-  ```text
-  http://<IP_ТВ>:8888
-  ```
-- Позволяет со смартфона или ПК в домашней сети Wi-Fi:
-  - Удобно вставить длинную строку прокси (включая логин и пароль).
-  - В один клик переключать SponsorBlock и детально настраивать категории для пропуска (чекбоксы для всех 8 категорий).
-  - Менять скорость воспроизведения и фиксировать качество видео.
-  - Проверять статус подключения к прокси.
-
-### ⚙ Интерактивное меню настроек на ТВ
-- Вызывается прямо с пульта телевизора (кнопка `MENU`, `SETTINGS`, `GUIDE` или `Красная` кнопка).
-- Нативный диалог с отображением текущего статуса всех функций, быстрым меню выбора категорий SponsorBlock (`🎯 Категории SponsorBlock: [X из 8]`) с мульти-выбором и возможностью переключения без использования мыши или клавиатуры.
-
-### ⏩ SponsorBlock (Пропуск интеграций)
-- Автоматический пропуск спонсорских вставок и нежелательного контента на основе базы данных SponsorBlock.
-- **Выбор категорий пропуска**: гибкая настройка типов сегментов прямо на телевизоре (мульти-выбор чекбоксами) или через Web-интерфейс (`:8888`):
-  - 📢 **Спонсорские интеграции** (`sponsor`)
-  - 🛍️ **Самореклама / мерч / соцсети** (`selfpromo`)
-  - 🔔 **Призывы подписаться / лайк / колокольчик** (`interaction`)
-  - 🎬 **Вступительное интро** (`intro`)
-  - 🏁 **Титры / аутро в конце** (`outro`)
-  - ⏱️ **Анонс / тизер в начале** (`preview`)
-  - 💬 **Вода / филлер** (`filler`)
-  - 🎵 **Немузыкальная часть в клипах** (`music_offtopic`)
-- Прямой защищённый HTTPS-клиент с поддержкой резервного зеркала (`sponsor.ajay.app` ➔ `api.sponsor.ajay.app`). При включённом прокси все запросы идут через защищённый туннель.
-- Точный переход по меткам времени с вызовом как нативного Cobalt Player API (`seekTo`), так и HTML5 Video (`currentTime`).
-- Информативный баннер в правом верхнем углу (OSD) с категорией и длительностью пропущенного фрагмента.
-
-### 📺 Выбор и фиксация качества видео
-- Возможность зафиксировать предпочтительное разрешение: **Авто**, **720p**, **1080p FHD**, **1440p 2K**, **2160p 4K**.
-- Автоматический выбор ближайшего доступного потока, если видео недоступно в целевом качестве.
-- Экранный OSD-индикатор при смене качества.
-
-### ⚡ Регулировка скорости воспроизведения
-- Управление скоростью видео: **1.0x**, **1.25x**, **1.5x**, **1.75x**, **2.0x**.
-- Поддерживается как через веб-интерфейс, так и горячей клавишей на пульте.
-
-### 🛡 Встроенный AdBlock
-- Очистка рекламных структур (`adPlacements`, `adSlots`, `playerAds`) из ответов API YouTube.
-- Автоматический пропуск и ускорение рекламных роликов до 16x с автокликом по кнопкам «Пропустить».
-- Сохранение 100% стабильной навигации и фокуса оригинального пульта Smart TV.
+[🇬🇧 Read in English](README.md) | [🇷🇺 Читать на русском](README_RU.md)
 
 ---
 
-## 🎮 Управление с пульта (Горячие клавиши)
+## 🚀 Key Features
 
-| Кнопка пульта | Действие |
+### ⚡ Built-in SOCKS5 Proxy (Bypass Subsystem)
+- Full support for socks5://user:pass@host:port with user authentication.
+- Local SOCKS loopback tunnel (127.0.0.1:9876) that transparently routes Chromium, Cobalt, and Cronet networking.
+- Enables watching YouTube on Smart TV without needing external VPN apps or router configuration.
+
+### 🌐 Local Web Management Interface (:8888)
+- Lightweight embedded HTTP server listening on port 8888.
+- On startup, the app displays an on-screen toast with the TV's local network IP:
+  `	ext
+  http://<TV_IP>:8888
+  `
+- Easily manage settings from any smartphone or PC connected to the same Wi-Fi:
+  - Copy and paste long SOCKS5 proxy URLs.
+  - Switch language between **English** and **Russian** ([EN] / [RU]).
+  - Toggle SponsorBlock and select active categories via checkboxes.
+  - Lock preferred video resolution and playback speed.
+  - Check real-time connection and proxy status.
+
+### ⚙️ Interactive On-Screen TV Settings Menu
+- Opened directly with the TV remote: **MENU**, **SETTINGS**, **GUIDE**, **INFO**, or the **RED** color key.
+- Native Leanback dialog displaying the live status of all mod features.
+- In-menu **Language selector** (*Auto / English / Russian*).
+- Multi-choice category selector dialog (🎯 SponsorBlock Categories: [X of 8]) designed specifically for remote D-pad navigation.
+
+### ⏩ SponsorBlock (Skip Segments with Category Selector)
+- Automatically skips sponsors, self-promotion, and tangents using the crowd-sourced SponsorBlock database.
+- **On-Screen Disappearing Floating OSD Window**:
+  - Whenever a segment is skipped, a crisp floating toast window appears in the top-right corner of the TV:
+    `	ext
+    ⏩ Skipped sponsor (13s)
+    `
+  - Also displays speed changes (⚡ Speed: 1.25x), quality adjustments (📺 Quality: 1080p), and SponsorBlock toggle status.
+  - Mirrored via native Android system toasts for 100% visibility.
+- **8 Selectable Segment Categories**:
+  - 📢 **Sponsor integrations** (sponsor)
+  - 🛍️ **Self-promotion / merch / socials** (selfpromo)
+  - 🔔 **Subscribe / Like reminder** (interaction)
+  - 🎬 **Intro animation** (intro)
+  - 🏁 **End credits / Outro** (outro)
+  - ⏱️ **Preview / Hook in start** (preview)
+  - 💬 **Filler / Tangent** (iller)
+  - 🎵 **Non-music section in music videos** (music_offtopic)
+- Direct secure HTTPS client with fallback mirror (sponsor.ajay.app ➔ pi.sponsor.ajay.app), routed through the proxy tunnel when enabled.
+- Segment caching (segmentsCache) prevents lost skips when switching between videos.
+
+### 📺 Video Quality Lock
+- Lock preferred resolution: **Auto**, **720p HD**, **1080p Full HD**, **1440p 2K**, **2160p 4K Ultra HD**.
+- Automatically selects the closest available stream if the target resolution is unavailable.
+
+### ⚡ Playback Speed Control
+- Cycle playback speed: **1.0x**, **1.25x**, **1.5x**, **1.75x**, **2.0x**.
+- Controlled via remote green button or Web UI.
+
+### 🛡️ Built-in AdBlock
+- Strips ad structures (dPlacements, dSlots, playerAds) from YouTube internal API responses.
+- Auto-accelerates and skips any remaining video ads.
+- Maintains 100% stable remote navigation and focus on Smart TVs.
+
+---
+
+## 🎮 Remote Hotkeys
+
+| Remote Button | Action |
 | :--- | :--- |
-| **`MENU`** / **`SETTINGS`** / **`GUIDE`** / **`INFO`** | Открыть нативное меню настроек YouTube TV Mod |
-| **`КРАСНАЯ (PROG RED)`** | Открыть меню настроек |
-| **`ЗЕЛЁНАЯ (PROG GREEN)`** | Циклическое переключение скорости: `1.0x` ➔ `1.25x` ➔ `1.5x` ➔ `1.75x` ➔ `2.0x` |
-| **`ЖЁЛТАЯ (PROG YELLOW)`** | Включение / выключение SponsorBlock |
-| **`СИНЯЯ (PROG BLUE)`** | Циклическое переключение качества: `Авто` ➔ `1080p` ➔ `1440p` ➔ `2160p (4K)` ➔ `720p` |
+| **MENU** / **SETTINGS** / **GUIDE** / **INFO** | Open on-screen YouTube TV Mod Settings dialog |
+| **RED (PROG RED)** | Open Settings dialog |
+| **GREEN (PROG GREEN)** | Cycle speed: 1.0x ➔ 1.25x ➔ 1.5x ➔ 1.75x ➔ 2.0x |
+| **YELLOW (PROG YELLOW)** | Toggle SponsorBlock (ON / OFF) |
+| **BLUE (PROG BLUE)** | Cycle quality: Auto ➔ 1080p ➔ 1440p ➔ 2160p (4K) ➔ 720p |
 
-*(Цветные кнопки можно отключить в настройках, если они конфликтуют с функциями телевизора).*
+*(Color keys can be toggled on/off in settings to prevent conflicts with your TV's native shortcuts).*
 
 ---
 
-## 🛠 Архитектура модификации
+## 🛠️ Architecture
 
-Приложение использует гибридную архитектуру Java/Smali-хуков и инъекции JavaScript в движок Chromium/Cobalt:
+The modification utilizes a hybrid architecture of Java/Smali hooks and JavaScript injection into the Chromium/Cobalt engine:
 
-```
+`
                   ┌─────────────────────────────────────┐
                   │          Android TV Remote          │
                   │   (MENU / Red / Green / Blue / ...)  │
@@ -100,79 +110,80 @@
                           │   - SponsorBlock HTTPS & OSD│
                           │   - Speed & Quality Hooks   │
                           └─────────────────────────────┘
-```
+`
 
-1. **`ProxyHelper.java` (`scratch/src/dev/cobalt/coat/ProxyHelper.java`)**:
-   - Главный модуль мода. Содержит встроенный HTTP-сервер для Web UI и REST API, локальный SOCKS5 туннель, обработчики диалогов и клавиатурных событий.
-2. **Хук `AdBlockHelper.smali` (`onWebContentsAvailable`)**:
-   - Перехватывает указатель на нативный Chromium `WebContentsImpl` при инициализации страницы и внедряет скрипт мода `buildModScript()`.
-3. **Хук `CobaltActivity.smali` (`dispatchKeyEvent`)**:
-   - Перехватывает нажатия кнопок пульта до их обработки веб-движком.
-4. **Хук `ProxyChangeListener.smali` и `ern.smali`**:
-   - Прокидывает прокси в стек Cronet и Chromium CommandLine флаги (`--proxy-server`).
-5. **Инъекция `buildModScript()`**:
-   - Обеспечивает прямую интеграцию со SponsorBlock API, блокировку рекламы (включая ускорение и автоскип preroll/midroll) и управление воспроизведением с OSD-оповещениями.
+1. **ProxyHelper.java (scratch/src/dev/cobalt/coat/ProxyHelper.java)**:
+   - Core mod module containing the embedded HTTP server, local SOCKS5 tunnel, dialog runners, and remote key listeners.
+2. **AdBlockHelper.smali Hook (onWebContentsAvailable)**:
+   - Intercepts the native Chromium WebContentsImpl handle upon page initialization and injects uildModScript().
+3. **CobaltActivity.smali Hook (dispatchKeyEvent)**:
+   - Intercepts remote button presses prior to web engine handling.
+4. **ProxyChangeListener.smali & rn.smali Hooks**:
+   - Injects proxy configuration into the Cronet stack and Chromium CommandLine flags.
+5. **uildModScript()**:
+   - Manages direct SponsorBlock skipping, floating OSD popups, ad stripping, and playback parameters.
 
 ---
 
-## 📦 Сборка из исходников
+## 📦 Building from Source
 
-### Требования
+### Prerequisites
 - Python 3.8+
-- Java Development Kit (JDK 8 или новее)
-- Android SDK Build-Tools (`d8`, `zipalign`, `apksigner`)
-- `apktool` (версии 3.0+)
+- Java Development Kit (JDK 8 or newer)
+- Android SDK Build-Tools (d8, zipalign, pksigner)
+- pktool (3.0+)
 
-### Инструкция по сборке
+### Build Steps
 
-1. Клонируйте репозиторий:
-   ```bash
+1. Clone the repository:
+   `ash
    git clone https://github.com/chattytoaster/yttvaf.git
    cd yttvaf
-   ```
+   `
 
-2. Запустите автоматический скрипт сборки:
-   ```bash
+2. Run the automated build script:
+   `ash
    python tools/generate_proxy_helper.py
-   ```
+   `
 
-Скрипт автоматически:
-- Компилирует `ProxyHelper.java` с помощью `javac`
-- Преобразует скомпилированные классы в `.dex` через `d8` (с дешугарингом для Android API 24+)
-- Дизассемблирует dex в smali и копирует их в дерево разобранного APK
-- Проверяет и патчит smali-хуки в `AdBlockHelper`, `CobaltActivity` и Cronet
-- Собирает APK через `apktool`
-- Выполняет выравнивание (`zipalign`) и подпись (`apksigner`) с помощью `mod-debug.keystore`
-- Создаёт готовый файл `MODIFIED_FILE.apk`
+The script automatically:
+- Compiles ProxyHelper.java with javac (UTF-8 encoded)
+- Converts classes to .dex using d8
+- Disassembles dex to smali with pktool
+- Copies generated smali files into the decompiled APK tree
+- Verifies and applies smali hooks
+- Builds APK with pktool b
+- Runs zipalign and signs with pksigner using mod-debug.keystore
+- Outputs MODIFIED_FILE.apk
 
 ---
 
-## 📲 Установка на телевизор
+## 📲 Installation on TV
 
-Через ADB (по кабелю или Wi-Fi):
-```bash
-adb connect <IP_телевизора>:5555
+Via ADB (USB or Wi-Fi):
+`ash
+adb connect <TV_IP>:5555
 adb install -r MODIFIED_FILE.apk
-```
+`
 
-После установки запустите приложение:
-```bash
+Launch the application:
+`ash
 adb shell monkey -p com.chatty.yttvaf -c android.intent.category.LEANBACK_LAUNCHER 1
-```
+`
 
-При первом запуске на экране отобразится адрес веб-интерфейса, например `http://192.168.0.178:8888`. Откройте его на телефоне или компьютере в той же сети для быстрой настройки прокси и параметров.
-
----
-
-## 🔄 Обновление на новые версии YouTube TV
-
-При выходе новых версий YouTube for Android TV (на APKMirror и др.) вы можете легко перенести все модификации, хуки и Web UI на свежий APK.
-
-Подробное пошаговое руководство с описанием поиска обфусцированных классов (`auo`, `bnj`, `ern`) и точек интеграции доступно в документе:
-👉 **[UPDATING.md](UPDATING.md)**
+On first launch, the web interface URL (e.g. http://192.168.0.178:8888) will appear on screen. Open it on your phone or PC to configure proxy settings.
 
 ---
 
-## 📄 Лицензия
+## 🔄 Updating to Newer YouTube TV Versions
 
-Модификация создана исключительно в образовательных целях и для персонального использования. Все права на оригинальное приложение YouTube TV принадлежат Google LLC.
+When new versions of YouTube for Android TV are released, you can easily port all modifications, hooks, and Web UI to the new APK.
+
+Refer to the complete step-by-step porting guide:
+👉 **[UPDATING_EN.md](UPDATING_EN.md)** *(Russian version: [UPDATING.md](UPDATING.md))*
+
+---
+
+## 📄 License
+
+This modification is provided for educational and personal use only. All rights to the original YouTube TV application belong to Google LLC.

@@ -2,6 +2,8 @@
 
 Данный документ описывает процесс портирования хуков и модулей **YouTube TV Mod (com.chatty.yttvaf)** на новые официальные версии YouTube для Android TV (движок Cobalt / Leanback).
 
+[🇬🇧 Read in English](UPDATING_EN.md) | [🇷🇺 Читать на русском](UPDATING.md)
+
 ---
 
 ## 📑 Содержание

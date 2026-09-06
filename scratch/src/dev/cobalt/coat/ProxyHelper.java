@@ -47,6 +47,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -62,11 +63,13 @@ public class ProxyHelper {
     public static final String KEY_PLAYBACK_SPEED = "playback_speed";
     public static final String KEY_COLOR_KEYS_ENABLED = "color_keys_enabled";
 
+    public static final String KEY_LANGUAGE = "app_language";
+
     public static final String DEFAULT_SB_CATEGORIES = "sponsor,selfpromo,interaction,intro,outro,preview,filler,music_offtopic";
     public static final String[] ALL_SB_CATEGORIES = new String[] {
             "sponsor", "selfpromo", "interaction", "intro", "outro", "preview", "filler", "music_offtopic"
     };
-    public static final String[] SB_CATEGORY_NAMES = new String[] {
+    public static final String[] SB_CATEGORY_NAMES_RU = new String[] {
             "Спонсорские интеграции",
             "Самореклама (мерч, соцсети)",
             "Подписка / Лайк / Колокольчик",
@@ -76,6 +79,34 @@ public class ProxyHelper {
             "Вода / Филлер",
             "Немузыкальная часть в клипах"
     };
+    public static final String[] SB_CATEGORY_NAMES_EN = new String[] {
+            "Sponsor integrations",
+            "Self-promotion (merch, socials)",
+            "Subscribe / Like reminder",
+            "Intro animation",
+            "End credits / Outro",
+            "Preview / Hook in start",
+            "Filler / Tangent",
+            "Non-music section in music videos"
+    };
+
+    public static boolean isRussian(Context context) {
+        if (context == null) return false;
+        return isRussian(context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE));
+    }
+
+    public static boolean isRussian(SharedPreferences prefs) {
+        if (prefs == null) return false;
+        String lang = prefs.getString(KEY_LANGUAGE, "auto");
+        if ("ru".equalsIgnoreCase(lang)) return true;
+        if ("en".equalsIgnoreCase(lang)) return false;
+        String sys = Locale.getDefault().getLanguage();
+        return "ru".equalsIgnoreCase(sys) || "be".equalsIgnoreCase(sys) || "uk".equalsIgnoreCase(sys) || "kk".equalsIgnoreCase(sys);
+    }
+
+    public static String[] getSbCategoryNames(Context context) {
+        return isRussian(context) ? SB_CATEGORY_NAMES_RU : SB_CATEGORY_NAMES_EN;
+    }
 
     public static Set<String> getSbCategoriesSet(Context context) {
         SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
@@ -118,6 +149,7 @@ public class ProxyHelper {
     private static volatile boolean sProxyEnabled = false;
     private static volatile ProxyConfig sCurrentConfig = null;
     private static volatile Context sContext = null;
+    private static volatile Activity sActivity = null;
     private static volatile long sNativeWebContents = 0;
     private static volatile long sInjectedWebContentsPtr = 0;
 
@@ -137,18 +169,63 @@ public class ProxyHelper {
     private static final Map<String, Long> sLastFetchTime = Collections.synchronizedMap(new LruCache<String, Long>(100));
     private static volatile boolean sWatchdogRunning = false;
 
-    public static void onTitleChanged(String title) {
-        if (title == null || !title.startsWith("YTTV_VID:")) return;
-        try {
-            String rest = title.substring(9).trim();
-            int colon = rest.indexOf(':');
-            final String vid = (colon != -1) ? rest.substring(0, colon) : rest;
-            if (vid != null && vid.length() == 11) {
-                Log.i(TAG, "SponsorBlock detected video ID: " + vid);
-                fetchAndInjectSegments(vid);
+    public static void showNativeToast(final String msg) {
+        new Handler(Looper.getMainLooper()).post(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    Context ctx = sActivity != null ? sActivity : sContext;
+                    if (ctx != null) {
+                        Toast.makeText(ctx.getApplicationContext(), msg, Toast.LENGTH_SHORT).show();
+                    }
+                } catch (Throwable t) {
+                    Log.e(TAG, "Failed to show toast", t);
+                }
             }
-        } catch (Throwable t) {
-            Log.e(TAG, "Error in onTitleChanged", t);
+        });
+    }
+
+    public static void onTitleChanged(String title) {
+        if (title == null) return;
+        if (title.startsWith("YTTV_VID:")) {
+            try {
+                String rest = title.substring(9).trim();
+                int colon = rest.indexOf(':');
+                final String vid = (colon != -1) ? rest.substring(0, colon) : rest;
+                if (vid != null && vid.length() == 11) {
+                    Log.i(TAG, "SponsorBlock detected video ID: " + vid);
+                    fetchAndInjectSegments(vid);
+                }
+            } catch (Throwable t) {
+                Log.e(TAG, "Error in onTitleChanged", t);
+            }
+        } else if (title.startsWith("YTTV_SKIP:")) {
+            try {
+                // Format: YTTV_SKIP:isRu:category:diff:timestamp
+                String[] parts = title.split(":");
+                if (parts.length >= 4) {
+                    boolean isRu = "1".equals(parts[1]);
+                    String cat = parts[2];
+                    String diff = parts[3];
+                    final String toastMsg;
+                    if (isRu) {
+                        String catRu = "спонсор";
+                        if ("selfpromo".equals(cat)) catRu = "самореклама";
+                        else if ("interaction".equals(cat)) catRu = "подписка/лайк";
+                        else if ("intro".equals(cat)) catRu = "интро";
+                        else if ("outro".equals(cat)) catRu = "титры";
+                        else if ("preview".equals(cat)) catRu = "анонс";
+                        else if ("filler".equals(cat)) catRu = "вода/филлер";
+                        else if ("music_offtopic".equals(cat)) catRu = "немузыкальная часть";
+                        toastMsg = "⏩ Пропущен " + catRu + " (" + diff + " сек)";
+                    } else {
+                        toastMsg = "⏩ Skipped " + cat + " (" + diff + "s)";
+                    }
+                    showNativeToast(toastMsg);
+                }
+            } catch (Throwable t) {
+                Log.e(TAG, "Error in onTitleChanged (skip toast)", t);
+            }
         }
     }
 
@@ -907,7 +984,10 @@ public class ProxyHelper {
             try {
                 String ip = getLocalIpAddress();
                 if (!"127.0.0.1".equals(ip) && !"0.0.0.0".equals(ip)) {
-                    Toast.makeText(context.getApplicationContext(), "⚡ YTTV Mod: Web-настройки http://" + ip + ":" + WEB_SERVER_PORT, Toast.LENGTH_LONG).show();
+                    boolean isRu = isRussian(context);
+                    String msg = isRu ? ("⚡ YTTV Mod: Web-настройки http://" + ip + ":" + WEB_SERVER_PORT) :
+                            ("⚡ YTTV Mod: Web settings http://" + ip + ":" + WEB_SERVER_PORT);
+                    Toast.makeText(context.getApplicationContext(), msg, Toast.LENGTH_LONG).show();
                 }
             } catch (Throwable ignored) {}
         }
@@ -1106,6 +1186,19 @@ public class ProxyHelper {
             boolean restartNeeded = false;
             String responseHtml;
 
+            if (path.contains("lang=en")) {
+                prefs.edit().putString(KEY_LANGUAGE, "en").apply();
+                updateWebClientConfig(prefs);
+            } else if (path.contains("lang=ru")) {
+                prefs.edit().putString(KEY_LANGUAGE, "ru").apply();
+                updateWebClientConfig(prefs);
+            } else if (path.contains("lang=auto")) {
+                prefs.edit().putString(KEY_LANGUAGE, "auto").apply();
+                updateWebClientConfig(prefs);
+            }
+
+            boolean isRuReq = isRussian(prefs);
+
             if (path.startsWith("/save_mods") || ("POST".equalsIgnoreCase(method) && path.startsWith("/save_mods"))) {
                 String payload = body.isEmpty() ? path : body;
                 boolean sb = "1".equals(extractParam(payload, "sb_enabled"));
@@ -1140,7 +1233,7 @@ public class ProxyHelper {
                 editor.apply();
 
                 updateWebClientConfig(prefs);
-                responseHtml = getHtmlPage(context, "&#9989; &#1053;&#1072;&#1089;&#1090;&#1088;&#1086;&#1081;&#1082;&#1080; &#1087;&#1088;&#1080;&#1084;&#1077;&#1085;&#1077;&#1085;&#1099; &#1085;&#1072; &#1058;&#1042; &#1073;&#1077;&#1079; &#1087;&#1077;&#1088;&#1077;&#1079;&#1072;&#1087;&#1091;&#1089;&#1082;&#1072;!");
+                responseHtml = getHtmlPage(context, isRuReq ? "✅ Настройки применены на ТВ!" : "✅ Settings applied to TV!");
             } else if (path.startsWith("/save") || ("POST".equalsIgnoreCase(method) && path.equals("/"))) {
                 String newProxy = extractParam(body.isEmpty() ? path : body, "proxy_url");
                 String enabledStr = extractParam(body.isEmpty() ? path : body, "enabled");
@@ -1155,12 +1248,12 @@ public class ProxyHelper {
                     writeExternalProxyFile(newProxy);
                     restartNeeded = true;
                 }
-                responseHtml = getHtmlPage(context, "&#9989; &#1055;&#1088;&#1086;&#1082;&#1089;&#1080; &#1089;&#1086;&#1093;&#1088;&#1072;&#1085;&#1077;&#1085;! &#1055;&#1077;&#1088;&#1077;&#1079;&#1072;&#1087;&#1091;&#1089;&#1082; YouTube TV...");
+                responseHtml = getHtmlPage(context, isRuReq ? "✅ Прокси сохранен! Перезапуск..." : "✅ Proxy saved! Restarting...");
             } else if (path.startsWith("/disable")) {
                 prefs.edit().putBoolean(KEY_PROXY_ENABLED, false).apply();
                 writeExternalProxyFile("");
                 restartNeeded = true;
-                responseHtml = getHtmlPage(context, "&#10060; &#1055;&#1088;&#1086;&#1082;&#1089;&#1080; &#1086;&#1090;&#1082;&#1083;&#1102;&#1095;&#1077;&#1085;! &#1055;&#1077;&#1088;&#1077;&#1079;&#1072;&#1087;&#1091;&#1089;&#1082; YouTube TV...");
+                responseHtml = getHtmlPage(context, isRuReq ? "❌ Прокси отключен! Перезапуск..." : "❌ Proxy disabled! Restarting...");
             } else {
                 responseHtml = getHtmlPage(context, null);
             }
@@ -1226,6 +1319,7 @@ public class ProxyHelper {
         String sbCatsJson = getSbCategoriesJson(context);
         String quality = prefs.getString(KEY_PREFERRED_QUALITY, "auto");
         float speed = prefs.getFloat(KEY_PLAYBACK_SPEED, 1.0f);
+        boolean isRu = isRussian(prefs);
 
         return "(function() {\n" +
                 "    function getPlayer() {\n" +
@@ -1240,7 +1334,8 @@ public class ProxyHelper {
                 "                sbEnabled: " + sbEnabled + ",\n" +
                 "                sbCategories: " + sbCatsJson + ",\n" +
                 "                quality: \"" + quality + "\",\n" +
-                "                speed: " + speed + "\n" +
+                "                speed: " + speed + ",\n" +
+                "                isRu: " + isRu + "\n" +
                 "            });\n" +
                 "        }\n" +
                 "        return;\n" +
@@ -1250,25 +1345,50 @@ public class ProxyHelper {
                 "        sbEnabled: " + sbEnabled + ",\n" +
                 "        sbCategories: " + sbCatsJson + ",\n" +
                 "        quality: \"" + quality + "\",\n" +
-                "        speed: " + speed + "\n" +
+                "        speed: " + speed + ",\n" +
+                "        isRu: " + isRu + "\n" +
                 "    };\n" +
                 "\n" +
-                "    /* 1. OSD BANNER */\n" +
-                "    var osd = document.createElement('div');\n" +
-                "    osd.id = '__yttv_osd';\n" +
-                "    osd.style.cssText = 'position:fixed;top:32px;right:40px;z-index:9999999;background:rgba(20,20,20,0.92);color:#ffffff;border-left:5px solid #00e5ff;padding:12px 24px;border-radius:8px;font-size:20px;font-weight:600;font-family:-apple-system,BlinkMacSystemFont,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,0.7);display:none;pointer-events:none;transition:opacity 0.25s ease;';\n" +
-                "    document.documentElement.appendChild(osd);\n" +
+                "    /* 1. OSD POPUP BANNER */\n" +
+                "    var osd = null;\n" +
                 "    var osdTimer = null;\n" +
+                "    function getOrCreateOsd() {\n" +
+                "        if (!osd) {\n" +
+                "            osd = document.getElementById('__yttv_osd');\n" +
+                "        }\n" +
+                "        if (!osd) {\n" +
+                "            osd = document.createElement('div');\n" +
+                "            osd.id = '__yttv_osd';\n" +
+                "            osd.style.position = 'fixed';\n" +
+                "            osd.style.top = '40px';\n" +
+                "            osd.style.right = '50px';\n" +
+                "            osd.style.zIndex = '99999';\n" +
+                "            osd.style.backgroundColor = '#181818';\n" +
+                "            osd.style.color = '#00e676';\n" +
+                "            osd.style.border = '2px solid #00e676';\n" +
+                "            osd.style.borderRadius = '10px';\n" +
+                "            osd.style.padding = '14px 26px';\n" +
+                "            osd.style.fontSize = '24px';\n" +
+                "            osd.style.fontWeight = 'bold';\n" +
+                "            osd.style.display = 'none';\n" +
+                "            osd.style.pointerEvents = 'none';\n" +
+                "            var parent = document.body || document.documentElement;\n" +
+                "            if (parent) parent.appendChild(osd);\n" +
+                "        }\n" +
+                "        return osd;\n" +
+                "    }\n" +
                 "    function showOsd(msg, color, duration) {\n" +
                 "        try {\n" +
-                "            osd.innerHTML = msg;\n" +
-                "            osd.style.borderLeftColor = color || '#00e5ff';\n" +
-                "            osd.style.display = 'block';\n" +
-                "            osd.style.opacity = '1';\n" +
+                "            var el = getOrCreateOsd();\n" +
+                "            if (!el) return;\n" +
+                "            el.innerText = msg;\n" +
+                "            var c = color || '#00e676';\n" +
+                "            el.style.color = c;\n" +
+                "            el.style.borderColor = c;\n" +
+                "            el.style.display = 'block';\n" +
                 "            if (osdTimer) clearTimeout(osdTimer);\n" +
                 "            osdTimer = setTimeout(function() {\n" +
-                "                osd.style.opacity = '0';\n" +
-                "                setTimeout(function() { osd.style.display = 'none'; }, 300);\n" +
+                "                try { el.style.display = 'none'; } catch(e) {}\n" +
                 "            }, duration || 2500);\n" +
                 "        } catch(e) {}\n" +
                 "    }\n" +
@@ -1463,17 +1583,26 @@ public class ProxyHelper {
                 "                    }\n" +
                 "                } catch(e) {}\n" +
                 "\n" +
-                "                var catLabel = 'Спонсор';\n" +
-                "                if (s.category === 'selfpromo') catLabel = 'Самореклама';\n" +
-                "                else if (s.category === 'interaction') catLabel = 'Подписка/Лайк';\n" +
-                "                else if (s.category === 'intro') catLabel = 'Интро';\n" +
-                "                else if (s.category === 'outro') catLabel = 'Титры';\n" +
-                "                else if (s.category === 'preview') catLabel = 'Анонс';\n" +
-                "                else if (s.category === 'filler') catLabel = 'Вода/Филлер';\n" +
-                "                else if (s.category === 'music_offtopic') catLabel = 'Немузыкальная часть';\n" +
+                "                var isRu = window.__yttv_config && window.__yttv_config.isRu;\n" +
                 "                var diff = Math.max(1, Math.round(s.end - s.start));\n" +
-                "                console.log('[YTTV Mod] Skipped ' + s.category + ' (' + diff + 's) to ' + skipTo);\n" +
-                "                showOsd('⏩ Пропущено: ' + catLabel + ' (' + diff + ' сек)', '#00e676', 3000);\n" +
+                "                var msg = '';\n" +
+                "                if (isRu) {\n" +
+                "                    var catLabel = 'спонсор';\n" +
+                "                    if (s.category === 'selfpromo') catLabel = 'самореклама';\n" +
+                "                    else if (s.category === 'interaction') catLabel = 'подписка/лайк';\n" +
+                "                    else if (s.category === 'intro') catLabel = 'интро';\n" +
+                "                    else if (s.category === 'outro') catLabel = 'титры';\n" +
+                "                    else if (s.category === 'preview') catLabel = 'анонс';\n" +
+                "                    else if (s.category === 'filler') catLabel = 'вода/филлер';\n" +
+                "                    else if (s.category === 'music_offtopic') catLabel = 'немузыкальная часть';\n" +
+                "                    msg = '⏩ Пропущен ' + catLabel + ' (' + diff + ' сек)';\n" +
+                "                } else {\n" +
+                "                    var catLabelEn = s.category || 'sponsor';\n" +
+                "                    msg = '⏩ Skipped ' + catLabelEn + ' (' + diff + 's)';\n" +
+                "                }\n" +
+                "                console.log('[YTTV Mod] ' + msg + ' to ' + skipTo);\n" +
+                "                showOsd(msg, '#00e676', 3000);\n" +
+                "                try { document.title = 'YTTV_SKIP:' + (isRu ? '1' : '0') + ':' + s.category + ':' + diff + ':' + Date.now(); } catch(e) {}\n" +
                 "                break;\n" +
                 "            }\n" +
                 "        }\n" +
@@ -1490,17 +1619,22 @@ public class ProxyHelper {
                 "    window.__yttv_set_speed = function(val) {\n" +
                 "        window.__yttv_config.speed = val;\n" +
                 "        applySpeed();\n" +
-                "        showOsd('⚡ Скорость: ' + val + 'x', '#00e676', 2000);\n" +
+                "        var isRu = window.__yttv_config && window.__yttv_config.isRu;\n" +
+                "        showOsd(isRu ? ('⚡ Скорость: ' + val + 'x') : ('⚡ Speed: ' + val + 'x'), '#00e676', 2000);\n" +
                 "    };\n" +
                 "    window.__yttv_set_quality = function(val) {\n" +
                 "        window.__yttv_config.quality = val;\n" +
                 "        applyQuality();\n" +
-                "        var ql = val === 'auto' ? 'Авто' : (val + 'p' + (val === '2160' ? ' 4K' : ''));\n" +
-                "        showOsd('📺 Качество: ' + ql, '#00b0ff', 2000);\n" +
+                "        var isRu = window.__yttv_config && window.__yttv_config.isRu;\n" +
+                "        var ql = val === 'auto' ? (isRu ? 'Авто' : 'Auto') : (val + 'p' + (val === '2160' ? ' 4K' : ''));\n" +
+                "        showOsd(isRu ? ('📺 Качество: ' + ql) : ('📺 Quality: ' + ql), '#00b0ff', 2000);\n" +
                 "    };\n" +
                 "    window.__yttv_toggle_sb = function(val) {\n" +
                 "        window.__yttv_config.sbEnabled = val;\n" +
-                "        showOsd('⏩ SponsorBlock: ' + (val ? 'ВКЛ' : 'ВЫКЛ'), '#ffd600', 2000);\n" +
+                "        var isRu = window.__yttv_config && window.__yttv_config.isRu;\n" +
+                "        var onTxt = isRu ? 'ВКЛ' : 'ON';\n" +
+                "        var offTxt = isRu ? 'ВЫКЛ' : 'OFF';\n" +
+                "        showOsd('⏩ SponsorBlock: ' + (val ? onTxt : offTxt), val ? '#00e676' : '#ff5252', 2000);\n" +
                 "    };\n" +
                 "\n" +
                 "    /* 8. MAIN TICKER (every 250ms) */\n" +
@@ -1669,7 +1803,8 @@ public class ProxyHelper {
 
         prefs.edit().putFloat(KEY_PLAYBACK_SPEED, next).apply();
         evaluateJs("if(window.__yttv_set_speed) window.__yttv_set_speed(" + next + ");");
-        Toast.makeText(activity, "⚡ Скорость: " + next + "x", Toast.LENGTH_SHORT).show();
+        boolean isRu = isRussian(activity);
+        Toast.makeText(activity, isRu ? ("⚡ Скорость: " + next + "x") : ("⚡ Speed: " + next + "x"), Toast.LENGTH_SHORT).show();
     }
 
     public static void toggleSponsorBlock(final Activity activity) {
@@ -1680,7 +1815,10 @@ public class ProxyHelper {
 
         prefs.edit().putBoolean(KEY_SB_ENABLED, next).apply();
         evaluateJs("if(window.__yttv_toggle_sb) window.__yttv_toggle_sb(" + next + ");");
-        Toast.makeText(activity, "⏩ SponsorBlock: " + (next ? "ВКЛ" : "ВЫКЛ"), Toast.LENGTH_SHORT).show();
+        boolean isRu = isRussian(activity);
+        String onStr = isRu ? "ВКЛ" : "ON";
+        String offStr = isRu ? "ВЫКЛ" : "OFF";
+        Toast.makeText(activity, "⏩ SponsorBlock: " + (next ? onStr : offStr), Toast.LENGTH_SHORT).show();
     }
 
     public static void cycleQuality(final Activity activity) {
@@ -1689,6 +1827,7 @@ public class ProxyHelper {
         String cur = prefs.getString(KEY_PREFERRED_QUALITY, "auto");
         String next;
         String label;
+        boolean isRu = isRussian(activity);
         if ("auto".equals(cur)) {
             next = "1080";
             label = "1080p FHD";
@@ -1703,12 +1842,12 @@ public class ProxyHelper {
             label = "720p HD";
         } else {
             next = "auto";
-            label = "Авто";
+            label = isRu ? "Авто" : "Auto";
         }
 
         prefs.edit().putString(KEY_PREFERRED_QUALITY, next).apply();
         evaluateJs("if(window.__yttv_set_quality) window.__yttv_set_quality('" + next + "');");
-        Toast.makeText(activity, "📺 Качество: " + label, Toast.LENGTH_SHORT).show();
+        Toast.makeText(activity, isRu ? ("📺 Качество: " + label) : ("📺 Quality: " + label), Toast.LENGTH_SHORT).show();
     }
 
     private static class SettingsDialogRunnable implements Runnable, DialogInterface.OnClickListener {
@@ -1720,6 +1859,7 @@ public class ProxyHelper {
         public void run() {
             try {
                 final SharedPreferences prefs = activity.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+                boolean isRu = isRussian(prefs);
                 String currentProxy = prefs.getString(KEY_PROXY_URL, "");
                 boolean proxyEn = prefs.getBoolean(KEY_PROXY_ENABLED, true);
                 boolean sbEn = prefs.getBoolean(KEY_SB_ENABLED, true);
@@ -1730,23 +1870,29 @@ public class ProxyHelper {
                 int catCount = getSbCategoriesSet(activity).size();
 
                 AlertDialog.Builder builder = new AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert);
-                builder.setTitle("⚙ Настройки YouTube TV Mod");
+                builder.setTitle(isRu ? "⚙ Настройки YouTube TV Mod" : "⚙ YouTube TV Mod Settings");
 
-                String proxyLabel = (sProxyEnabled && proxyEn && !currentProxy.isEmpty()) ? "ВКЛ" : "ВЫКЛ";
-                String qLabel = "auto".equals(quality) ? "Авто" : (quality + "p" + ("2160".equals(quality) ? " 4K" : ""));
+                String onStr = isRu ? "ВКЛ" : "ON";
+                String offStr = isRu ? "ВЫКЛ" : "OFF";
+                String proxyLabel = (sProxyEnabled && proxyEn && !currentProxy.isEmpty()) ? onStr : offStr;
+                String qLabel = "auto".equals(quality) ? (isRu ? "Авто" : "Auto") : (quality + "p" + ("2160".equals(quality) ? " 4K" : ""));
+
+                String langPref = prefs.getString(KEY_LANGUAGE, "auto");
+                String langDisplay = "auto".equals(langPref) ? (isRu ? "Авто (RU)" : "Auto (EN)") : ("ru".equals(langPref) ? "Русский" : "English");
 
                 final String[] items = new String[] {
-                        "⚡ SOCKS5 Прокси: [" + proxyLabel + "]",
-                        "⏩ SponsorBlock: [" + (sbEn ? "ВКЛ" : "ВЫКЛ") + "]",
-                        "🎯 Категории SponsorBlock: [" + catCount + " из " + ALL_SB_CATEGORIES.length + "]",
-                        "📺 Качество видео: [" + qLabel + "]",
-                        "⚡ Скорость воспроизведения: [" + speed + "x]",
-                        "🎮 Цветные кнопки пульта: [" + (colorKeys ? "ВКЛ" : "ВЫКЛ") + "]",
-                        "🌐 Веб-интерфейс: http://" + tvIp + ":" + WEB_SERVER_PORT
+                        isRu ? ("⚡ SOCKS5 Прокси: [" + proxyLabel + "]") : ("⚡ SOCKS5 Proxy: [" + proxyLabel + "]"),
+                        isRu ? ("⏩ SponsorBlock: [" + (sbEn ? onStr : offStr) + "]") : ("⏩ SponsorBlock: [" + (sbEn ? onStr : offStr) + "]"),
+                        isRu ? ("🎯 Категории SponsorBlock: [" + catCount + " из " + ALL_SB_CATEGORIES.length + "]") : ("🎯 SponsorBlock Categories: [" + catCount + " of " + ALL_SB_CATEGORIES.length + "]"),
+                        isRu ? ("📺 Качество видео: [" + qLabel + "]") : ("📺 Video Quality: [" + qLabel + "]"),
+                        isRu ? ("⚡ Скорость воспроизведения: [" + speed + "x]") : ("⚡ Playback Speed: [" + speed + "x]"),
+                        isRu ? ("🎮 Цветные кнопки пульта: [" + (colorKeys ? onStr : offStr) + "]") : ("🎮 Remote Color Buttons: [" + (colorKeys ? onStr : offStr) + "]"),
+                        isRu ? ("🌐 Язык интерфейса: [" + langDisplay + "]") : ("🌐 Interface Language: [" + langDisplay + "]"),
+                        isRu ? ("🌐 Веб-интерфейс: http://" + tvIp + ":" + WEB_SERVER_PORT) : ("🌐 Web Interface: http://" + tvIp + ":" + WEB_SERVER_PORT)
                 };
 
                 builder.setItems(items, this);
-                builder.setNegativeButton("Закрыть", null);
+                builder.setNegativeButton(isRu ? "Закрыть" : "Close", null);
                 builder.show();
             } catch (Throwable t) {
                 Log.e(TAG, "Error showing settings dialog", t);
@@ -1756,6 +1902,7 @@ public class ProxyHelper {
         @Override
         public void onClick(DialogInterface dialog, int which) {
             SharedPreferences prefs = activity.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+            boolean isRu = isRussian(prefs);
             switch (which) {
                 case 0:
                     showProxyInputDialog(activity);
@@ -1778,14 +1925,53 @@ public class ProxyHelper {
                 case 5:
                     boolean nk = !prefs.getBoolean(KEY_COLOR_KEYS_ENABLED, true);
                     prefs.edit().putBoolean(KEY_COLOR_KEYS_ENABLED, nk).apply();
-                    Toast.makeText(activity, "Цветные кнопки: " + (nk ? "ВКЛ" : "ВЫКЛ"), Toast.LENGTH_SHORT).show();
+                    String onStr = isRu ? "ВКЛ" : "ON";
+                    String offStr = isRu ? "ВЫКЛ" : "OFF";
+                    Toast.makeText(activity, (isRu ? "Цветные кнопки: " : "Color buttons: ") + (nk ? onStr : offStr), Toast.LENGTH_SHORT).show();
                     showSettingsDialog(activity);
                     break;
                 case 6:
+                    showLanguageDialog(activity);
+                    break;
+                case 7:
                     showWebHintDialog(activity);
                     break;
             }
         }
+    }
+
+    public static void showLanguageDialog(final Activity activity) {
+        if (activity == null || activity.isFinishing()) return;
+        final SharedPreferences prefs = activity.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        final String cur = prefs.getString(KEY_LANGUAGE, "auto");
+        final boolean isRu = isRussian(prefs);
+        final String[] options = new String[] {
+                isRu ? "Автоматически (по системе)" : "Auto (System default)",
+                "English",
+                "Русский"
+        };
+        int selected = "en".equalsIgnoreCase(cur) ? 1 : ("ru".equalsIgnoreCase(cur) ? 2 : 0);
+        AlertDialog.Builder builder = new AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert);
+        builder.setTitle(isRu ? "🌐 Выбор языка" : "🌐 Select Language");
+        builder.setSingleChoiceItems(options, selected, new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                String chosen = (which == 1) ? "en" : ((which == 2) ? "ru" : "auto");
+                prefs.edit().putString(KEY_LANGUAGE, chosen).apply();
+                updateWebClientConfig(prefs);
+                boolean newRu = isRussian(prefs);
+                Toast.makeText(activity, newRu ? "Язык обновлен" : "Language updated", Toast.LENGTH_SHORT).show();
+                dialog.dismiss();
+                showSettingsDialog(activity);
+            }
+        });
+        builder.setNegativeButton(isRu ? "Отмена" : "Cancel", new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                showSettingsDialog(activity);
+            }
+        });
+        builder.show();
     }
 
     private static class SbCategoriesDialogRunnable implements Runnable, DialogInterface.OnMultiChoiceClickListener, DialogInterface.OnClickListener {
@@ -1805,11 +1991,12 @@ public class ProxyHelper {
                     checked[i] = currentCats.contains(ALL_SB_CATEGORIES[i]);
                 }
 
+                boolean isRu = isRussian(activity);
                 AlertDialog.Builder builder = new AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert);
-                builder.setTitle("🎯 Категории SponsorBlock");
-                builder.setMultiChoiceItems(SB_CATEGORY_NAMES, checked, this);
-                builder.setPositiveButton("Сохранить", this);
-                builder.setNegativeButton("Назад", this);
+                builder.setTitle(isRu ? "🎯 Категории SponsorBlock" : "🎯 SponsorBlock Categories");
+                builder.setMultiChoiceItems(getSbCategoryNames(activity), checked, this);
+                builder.setPositiveButton(isRu ? "Сохранить" : "Save", this);
+                builder.setNegativeButton(isRu ? "Назад" : "Back", this);
                 builder.show();
             } catch (Throwable t) {
                 Log.e(TAG, "Error showing categories dialog", t);
@@ -1837,7 +2024,8 @@ public class ProxyHelper {
                     SharedPreferences prefs = activity.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
                     prefs.edit().putString(KEY_SB_CATEGORIES, sb.toString()).apply();
                     updateWebClientConfig(prefs);
-                    Toast.makeText(activity, "Категории сохранены", Toast.LENGTH_SHORT).show();
+                    boolean isRu = isRussian(activity);
+                    Toast.makeText(activity, isRu ? "Категории сохранены" : "Categories saved", Toast.LENGTH_SHORT).show();
                 }
             }
             showSettingsDialog(activity);
@@ -1871,7 +2059,8 @@ public class ProxyHelper {
                     .putBoolean(KEY_PROXY_ENABLED, !newProxy.isEmpty())
                     .apply();
             writeExternalProxyFile(newProxy);
-            Toast.makeText(activity, "Сохранено! Перезапуск...", Toast.LENGTH_SHORT).show();
+            boolean isRu = isRussian(activity);
+            Toast.makeText(activity, isRu ? "Сохранено! Перезапуск..." : "Saved! Restarting...", Toast.LENGTH_SHORT).show();
             new Handler(Looper.getMainLooper()).postDelayed(new RestartRunnable(activity), 500);
         }
     }
@@ -1887,7 +2076,8 @@ public class ProxyHelper {
         public void onClick(DialogInterface dialog, int which) {
             prefs.edit().putBoolean(KEY_PROXY_ENABLED, false).apply();
             writeExternalProxyFile("");
-            Toast.makeText(activity, "Прокси отключен! Перезапуск...", Toast.LENGTH_SHORT).show();
+            boolean isRu = isRussian(activity);
+            Toast.makeText(activity, isRu ? "Прокси отключен! Перезапуск..." : "Proxy disabled! Restarting...", Toast.LENGTH_SHORT).show();
             new Handler(Looper.getMainLooper()).postDelayed(new RestartRunnable(activity), 500);
         }
     }
@@ -1906,15 +2096,18 @@ public class ProxyHelper {
                 String urlHint = ("127.0.0.1".equals(tvIp) || "0.0.0.0".equals(tvIp)) ?
                         "http://<IP_ТВ>:" + WEB_SERVER_PORT : "http://" + tvIp + ":" + WEB_SERVER_PORT;
 
+                boolean isRu = isRussian(activity);
                 AlertDialog.Builder builder = new AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert);
-                builder.setTitle("⚙ Настройка SOCKS5 Прокси");
+                builder.setTitle(isRu ? "⚙ Настройка SOCKS5 Прокси" : "⚙ SOCKS5 Proxy Setup");
 
                 LinearLayout layout = new LinearLayout(activity);
                 layout.setOrientation(LinearLayout.VERTICAL);
                 layout.setPadding(40, 20, 40, 10);
 
                 TextView hintTv = new TextView(activity);
-                hintTv.setText("Введите адрес SOCKS5 прокси (socks5://user:pass@host:port)\n\nИли откройте в браузере на телефоне/ПК:\n👉 " + urlHint);
+                hintTv.setText(isRu ?
+                        ("Введите адрес SOCKS5 прокси (socks5://user:pass@host:port)\n\nИли откройте в браузере на телефоне/ПК:\n👉 " + urlHint) :
+                        ("Enter SOCKS5 proxy address (socks5://user:pass@host:port)\n\nOr open in phone/PC browser:\n👉 " + urlHint));
                 hintTv.setTextSize(15f);
                 hintTv.setTextColor(0xFFCCCCCC);
                 layout.addView(hintTv);
@@ -1933,9 +2126,9 @@ public class ProxyHelper {
 
                 builder.setView(layout);
 
-                builder.setPositiveButton("Сохранить и перезапустить", new ProxySaveClickListener(activity, prefs, input));
-                builder.setNeutralButton("Отключить", new ProxyDisableClickListener(activity, prefs));
-                builder.setNegativeButton("Отмена", null);
+                builder.setPositiveButton(isRu ? "Сохранить и перезапустить" : "Save & Restart", new ProxySaveClickListener(activity, prefs, input));
+                builder.setNeutralButton(isRu ? "Отключить" : "Disable", new ProxyDisableClickListener(activity, prefs));
+                builder.setNegativeButton(isRu ? "Отмена" : "Cancel", null);
                 builder.show();
             } catch (Throwable t) {
                 Log.e(TAG, "Error showing proxy dialog", t);
@@ -1957,10 +2150,13 @@ public class ProxyHelper {
         public void run() {
             try {
                 String tvIp = getLocalIpAddress();
+                boolean isRu = isRussian(activity);
                 AlertDialog.Builder builder = new AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert);
-                builder.setTitle("🌐 Управление через Веб");
-                builder.setMessage("Откройте браузер на смартфоне или компьютере, подключенном к той же сети Wi-Fi:\n\n👉 http://" + tvIp + ":" + WEB_SERVER_PORT + "\n\nТам можно удобно ввести адрес прокси и настроить все параметры мода.");
-                builder.setPositiveButton("Понятно", null);
+                builder.setTitle(isRu ? "🌐 Управление через Веб" : "🌐 Web Interface");
+                builder.setMessage(isRu ?
+                        ("Откройте браузер на смартфоне или компьютере, подключенном к той же сети Wi-Fi:\n\n👉 http://" + tvIp + ":" + WEB_SERVER_PORT + "\n\nТам можно удобно ввести адрес прокси и настроить все параметры мода.") :
+                        ("Open your browser on a phone or PC connected to the same Wi-Fi network:\n\n👉 http://" + tvIp + ":" + WEB_SERVER_PORT + "\n\nConfigure proxy, SponsorBlock categories, video quality, and playback speed effortlessly."));
+                builder.setPositiveButton(isRu ? "Понятно" : "Got it", null);
                 builder.show();
             } catch (Throwable t) {
                 Log.e(TAG, "Error showing web hint", t);
@@ -1980,12 +2176,14 @@ public class ProxyHelper {
             String quality = prefs.getString(KEY_PREFERRED_QUALITY, "auto");
             float speed = prefs.getFloat(KEY_PLAYBACK_SPEED, 1.0f);
             String sbCatsJson = getSbCategoriesArray(prefs).toString();
+            boolean isRu = isRussian(prefs);
 
             String js = "if(window.__yttv_update_config) { window.__yttv_update_config({" +
                     "sbEnabled:" + sbEnabled + "," +
                     "sbCategories:" + sbCatsJson + "," +
                     "quality:\"" + quality + "\"," +
-                    "speed:" + speed +
+                    "speed:" + speed + "," +
+                    "isRu:" + isRu +
                     "}); }";
             evaluateJs(js);
         } catch (Throwable t) {
@@ -1995,6 +2193,7 @@ public class ProxyHelper {
 
     private static String getHtmlPage(Context context, String alertMessage) {
         SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        boolean isRu = isRussian(prefs);
         String currentProxy = prefs.getString(KEY_PROXY_URL, "");
         boolean proxyEn = prefs.getBoolean(KEY_PROXY_ENABLED, true);
         boolean sbEn = prefs.getBoolean(KEY_SB_ENABLED, true);
@@ -2006,20 +2205,22 @@ public class ProxyHelper {
         StringBuilder sb = new StringBuilder();
         sb.append("<!DOCTYPE html><html><head><meta charset='utf-8'>");
         sb.append("<meta name='viewport' content='width=device-width, initial-scale=1.0'>");
-        sb.append("<title>YouTube TV Mod - Управление</title>");
+        sb.append("<title>").append(isRu ? "YouTube TV Mod - Управление" : "YouTube TV Mod - Control Panel").append("</title>");
         sb.append("<style>");
         sb.append("body { background: #0f0f0f; color: #f1f1f1; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 20px; display: flex; justify-content: center; }");
-        sb.append(".container { max-width: 560px; width: 100%; display: flex; flex-direction: column; gap: 18px; }");
+        sb.append(".container { max-width: 580px; width: 100%; display: flex; flex-direction: column; gap: 18px; }");
         sb.append(".card { background: #1a1a1a; border-radius: 14px; padding: 22px; box-shadow: 0 10px 30px rgba(0,0,0,0.6); border: 1px solid #282828; }");
-        sb.append("h2 { color: #00e5ff; margin: 0 0 8px 0; font-size: 22px; display: flex; align-items: center; gap: 8px; }");
+        sb.append(".header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }");
+        sb.append("h2 { color: #00e5ff; margin: 0; font-size: 21px; display: flex; align-items: center; gap: 8px; }");
         sb.append("h3 { color: #fff; margin: 0 0 14px 0; font-size: 17px; border-bottom: 1px solid #333; padding-bottom: 8px; }");
         sb.append("p { color: #aaa; line-height: 1.5; font-size: 14px; margin: 0 0 12px 0; }");
-        sb.append(".alert { background: #1b3d22; border-left: 4px solid #00e676; padding: 12px; border-radius: 6px; font-weight: bold; color: #b9f6ca; font-size: 15px; }");
-        sb.append(".badges { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }");
+        sb.append(".alert { background: #1b3d22; border-left: 4px solid #00e676; padding: 12px; border-radius: 6px; font-weight: bold; color: #b9f6ca; font-size: 15px; margin-top: 10px; }");
+        sb.append(".badges { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }");
         sb.append(".badge { display: inline-block; padding: 5px 12px; border-radius: 12px; font-size: 13px; font-weight: bold; }");
         sb.append(".badge-on { background: #1b3d22; color: #00e676; border: 1px solid #00e676; }");
         sb.append(".badge-off { background: #3d1b1b; color: #ff5252; border: 1px solid #ff5252; }");
         sb.append(".badge-ip { background: #192a3e; color: #00b0ff; border: 1px solid #00b0ff; }");
+        sb.append(".lang-btn { text-decoration: none; padding: 5px 12px; border-radius: 6px; font-weight: bold; font-size: 12px; display: inline-block; }");
         sb.append("label { display: block; margin: 12px 0 6px; font-weight: bold; font-size: 14px; color: #ddd; }");
         sb.append("input[type=text], select { width: 100%; padding: 11px; border-radius: 7px; border: 1px solid #383838; background: #121212; color: #fff; font-size: 15px; box-sizing: border-box; }");
         sb.append("input[type=checkbox] { transform: scale(1.3); margin-right: 10px; }");
@@ -2037,15 +2238,23 @@ public class ProxyHelper {
         sb.append("</style></head><body>");
         sb.append("<div class='container'>");
 
+        // Header Card with Language Toggle
         sb.append("<div class='card'>");
-        sb.append("<h2>&#128250; YouTube TV Mod (com.chatty.yttvaf)</h2>");
+        sb.append("<div class='header-row'>");
+        sb.append("<h2>&#128250; YouTube TV Mod</h2>");
+        sb.append("<div style='display:flex; gap:6px;'>");
+        sb.append("<a href='?lang=en' class='lang-btn' style='background:").append(!isRu ? "#00e5ff; color:#000;" : "#262626; color:#aaa;").append("'>EN</a>");
+        sb.append("<a href='?lang=ru' class='lang-btn' style='background:").append(isRu ? "#00e5ff; color:#000;" : "#262626; color:#aaa;").append("'>RU</a>");
+        sb.append("</div>");
+        sb.append("</div>");
+
         sb.append("<div class='badges'>");
         if (sProxyEnabled && proxyEn && !currentProxy.isEmpty()) {
-            sb.append("<div class='badge badge-on'>&#10004; Прокси активен</div>");
+            sb.append("<div class='badge badge-on'>&#10004; ").append(isRu ? "Прокси активен" : "Proxy Active").append("</div>");
         } else {
-            sb.append("<div class='badge badge-off'>&#10006; Прокси выключен</div>");
+            sb.append("<div class='badge badge-off'>&#10006; ").append(isRu ? "Прокси выключен" : "Proxy Inactive").append("</div>");
         }
-        sb.append("<div class='badge badge-ip'>IP ТВ: ").append(tvIp).append("</div>");
+        sb.append("<div class='badge badge-ip'>").append(isRu ? "IP ТВ: " : "TV IP: ").append(tvIp).append("</div>");
         sb.append("</div>");
         if (alertMessage != null) {
             sb.append("<div class='alert'>").append(alertMessage).append("</div>");
@@ -2054,34 +2263,37 @@ public class ProxyHelper {
 
         // Card 1: Mod Features (Live updates without restart)
         sb.append("<div class='card'>");
-        sb.append("<h3>&#9889; Параметры видео и интерфейса (без перезапуска)</h3>");
+        sb.append("<h3>&#9889; ").append(isRu ? "Параметры видео и интерфейса (без перезапуска)" : "Video & Interface Settings (Live update)").append("</h3>");
         sb.append("<form method='POST' action='/save_mods'>");
 
         // SponsorBlock
         sb.append("<div class='chk-row'>");
         sb.append("<input type='checkbox' id='chk_sb' name='sb_enabled' value='1' ").append(sbEn ? "checked" : "").append(">");
-        sb.append("<label for='chk_sb'><b>SponsorBlock:</b> включить автопропуск сегментов</label>");
+        sb.append("<label for='chk_sb'><b>SponsorBlock:</b> ").append(isRu ? "включить автопропуск сегментов" : "enable auto-skipping segments").append("</label>");
         sb.append("</div>");
 
         // SponsorBlock Categories
         Set<String> curCats = getSbCategoriesSet(context);
-        sb.append("<label style='margin-top: 14px; font-size: 13px; color: #00e5ff;'>🎯 Пропускаемые категории SponsorBlock:</label>");
+        String[] catNames = getSbCategoryNames(context);
+        sb.append("<label style='margin-top: 14px; font-size: 13px; color: #00e5ff;'>🎯 ").append(isRu ? "Пропускаемые категории SponsorBlock:" : "Skipped SponsorBlock Categories:").append("</label>");
         sb.append("<div style='display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 6px 0 14px 0; background: #141414; padding: 12px; border-radius: 8px; border: 1px solid #2a2a2a;'>");
         for (int i = 0; i < ALL_SB_CATEGORIES.length; i++) {
             String cId = ALL_SB_CATEGORIES[i];
             boolean cChecked = curCats.contains(cId);
             sb.append("<div class='chk-row' style='margin: 3px 0;'>");
             sb.append("<input type='checkbox' id='cat_").append(cId).append("' name='cat_").append(cId).append("' value='1' ").append(cChecked ? "checked" : "").append(">");
-            sb.append("<label for='cat_").append(cId).append("' style='font-size: 13px;'>").append(SB_CATEGORY_NAMES[i]).append("</label>");
+            sb.append("<label for='cat_").append(cId).append("' style='font-size: 13px;'>").append(catNames[i]).append("</label>");
             sb.append("</div>");
         }
         sb.append("</div>");
 
         // Quality
-        sb.append("<label>📺 Предпочитаемое качество видео:</label>");
+        sb.append("<label>📺 ").append(isRu ? "Предпочитаемое качество видео:" : "Preferred Video Quality:").append("</label>");
         sb.append("<select name='preferred_quality'>");
         String[] qVals = new String[]{"auto", "1080", "1440", "2160", "720"};
-        String[] qNames = new String[]{"Авто (по умолчанию)", "1080p Full HD", "1440p 2K", "2160p 4K Ultra HD", "720p HD"};
+        String[] qNames = isRu ?
+                new String[]{"Авто (по умолчанию)", "1080p Full HD", "1440p 2K", "2160p 4K Ultra HD", "720p HD"} :
+                new String[]{"Auto (Default)", "1080p Full HD", "1440p 2K", "2160p 4K Ultra HD", "720p HD"};
         for (int i = 0; i < qVals.length; i++) {
             sb.append("<option value='").append(qVals[i]).append("' ").append(qVals[i].equals(quality) ? "selected" : "").append(">");
             sb.append(qNames[i]).append("</option>");
@@ -2089,53 +2301,60 @@ public class ProxyHelper {
         sb.append("</select>");
 
         // Speed
-        sb.append("<label>⚡ Скорость воспроизведения:</label>");
+        sb.append("<label>⚡ ").append(isRu ? "Скорость воспроизведения:" : "Playback Speed:").append("</label>");
         sb.append("<select name='playback_speed'>");
         float[] speeds = new float[]{1.0f, 1.25f, 1.5f, 1.75f, 2.0f};
         for (float sp : speeds) {
             boolean sel = Math.abs(sp - speed) < 0.05f;
             sb.append("<option value='").append(sp).append("' ").append(sel ? "selected" : "").append(">");
-            sb.append(sp).append("x").append(sp == 1.0f ? " (Нормальная)" : "").append("</option>");
+            sb.append(sp).append("x").append(sp == 1.0f ? (isRu ? " (Нормальная)" : " (Normal)") : "").append("</option>");
         }
         sb.append("</select>");
 
         // Color Keys
-        sb.append("<label style='margin-top: 16px;'>🎮 Горячие кнопки пульта ТВ:</label>");
+        sb.append("<label style='margin-top: 16px;'>🎮 ").append(isRu ? "Горячие кнопки пульта ТВ:" : "Remote Shortcut Keys:").append("</label>");
         sb.append("<div class='chk-row'>");
         sb.append("<input type='checkbox' id='chk_keys' name='color_keys_enabled' value='1' ").append(colorKeys ? "checked" : "").append(">");
-        sb.append("<label for='chk_keys'>Включить быстрые цветные кнопки пульта</label>");
+        sb.append("<label for='chk_keys'>").append(isRu ? "Включить быстрые цветные кнопки пульта" : "Enable color shortcut buttons on remote").append("</label>");
         sb.append("</div>");
 
         sb.append("<div class='color-keys'>");
-        sb.append("🔴 <b>Красная:</b> Меню настроек на экране ТВ<br>");
-        sb.append("🟢 <b>Зеленая:</b> Скорость (+0.25x)<br>");
-        sb.append("🟡 <b>Желтая:</b> SponsorBlock (Вкл/Выкл)<br>");
-        sb.append("🔵 <b>Синяя:</b> Качество (Auto / 1080p / 4K)");
+        if (isRu) {
+            sb.append("🔴 <b>Красная:</b> Меню настроек на экране ТВ<br>");
+            sb.append("🟢 <b>Зеленая:</b> Скорость (+0.25x)<br>");
+            sb.append("🟡 <b>Желтая:</b> SponsorBlock (Вкл/Выкл)<br>");
+            sb.append("🔵 <b>Синяя:</b> Качество (Auto / 1080p / 4K)");
+        } else {
+            sb.append("🔴 <b>Red:</b> On-screen Settings Menu<br>");
+            sb.append("🟢 <b>Green:</b> Speed (+0.25x)<br>");
+            sb.append("🟡 <b>Yellow:</b> SponsorBlock (On/Off)<br>");
+            sb.append("🔵 <b>Blue:</b> Quality (Auto / 1080p / 4K)");
+        }
         sb.append("</div>");
 
-        sb.append("<button type='submit' class='btn btn-apply'>⚡ Применить на ТВ (мгновенно)</button>");
+        sb.append("<button type='submit' class='btn btn-apply'>⚡ ").append(isRu ? "Применить на ТВ (мгновенно)" : "Apply to TV (Instantly)").append("</button>");
         sb.append("</form>");
         sb.append("</div>");
 
         // Card 2: SOCKS5 Proxy Configuration (Requires app restart)
         sb.append("<div class='card'>");
-        sb.append("<h3>&#128279; Настройка SOCKS5 Прокси (с перезапуском)</h3>");
-        sb.append("<p>Туннелирование трафика через локальный SNI Relay для обхода блокировок РКН.</p>");
+        sb.append("<h3>&#128279; ").append(isRu ? "Настройка SOCKS5 Прокси (с перезапуском)" : "SOCKS5 Proxy Setup (Requires Restart)").append("</h3>");
+        sb.append("<p>").append(isRu ? "Туннелирование трафика через локальный SNI Relay для обхода блокировок." : "Traffic tunneling through local SNI relay to bypass network restrictions.").append("</p>");
 
         sb.append("<form method='POST' action='/save'>");
-        sb.append("<label>Адрес SOCKS5 прокси:</label>");
+        sb.append("<label>").append(isRu ? "Адрес SOCKS5 прокси:" : "SOCKS5 Proxy Address:").append("</label>");
         sb.append("<input type='text' name='proxy_url' placeholder='socks5://user:pass@host:port' value='").append(escapeHtml(currentProxy)).append("' required>");
 
         sb.append("<div class='chk-row'>");
         sb.append("<input type='checkbox' id='chk_prx_en' name='enabled' value='1' ").append(proxyEn ? "checked" : "").append(">");
-        sb.append("<label for='chk_prx_en'>Использовать прокси при запуске приложения</label>");
+        sb.append("<label for='chk_prx_en'>").append(isRu ? "Использовать прокси при запуске приложения" : "Use proxy on app startup").append("</label>");
         sb.append("</div>");
 
-        sb.append("<button type='submit' class='btn btn-save'>💾 Сохранить и перезапустить TV</button>");
+        sb.append("<button type='submit' class='btn btn-save'>💾 ").append(isRu ? "Сохранить и перезапустить TV" : "Save & Restart TV App").append("</button>");
         sb.append("</form>");
 
         sb.append("<form method='POST' action='/disable'>");
-        sb.append("<button type='submit' class='btn btn-disable'>🚫 Отключить прокси</button>");
+        sb.append("<button type='submit' class='btn btn-disable'>🚫 ").append(isRu ? "Отключить прокси" : "Disable Proxy").append("</button>");
         sb.append("</form>");
         sb.append("</div>");
 

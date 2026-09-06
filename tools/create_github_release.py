@@ -22,30 +22,51 @@ def get_git_token():
 def main():
     token = get_git_token()
     repo = "chattytoaster/yttvaf"
-    tag = sys.argv[1] if len(sys.argv) > 1 else "v1.0.1"
-    title = sys.argv[2] if len(sys.argv) > 2 else f"YouTube TV Mod {tag} (SponsorBlock Fix & Category Selector)"
+    tag = sys.argv[1] if len(sys.argv) > 1 else "v1.0.2"
+    title = sys.argv[2] if len(sys.argv) > 2 else f"YouTube TV Mod {tag} (Floating Skip Popup & Full EN/RU Localization)"
     body = f"""# YouTube TV Mod {tag}
 
-Обновление модифицированного клиента **YouTube для Android TV** (пакет `com.chatty.yttvaf`) на базе движка Cobalt / Leanback.
+Release of modified **YouTube for Android TV** client (`com.chatty.yttvaf`) based on Cobalt / Leanback engine.
+[🇬🇧 Read in English](https://github.com/chattytoaster/yttvaf/blob/main/README.md) | [🇷🇺 Читать на русском](https://github.com/chattytoaster/yttvaf/blob/main/README_RU.md)
 
-### 🌟 Что нового в {tag}:
-- 🛠️ **Полное исправление работы SponsorBlock**:
-  - Устранена циклическая повторная инъекция скрипта при обновлениях медиа-сессии.
-  - Исключена перезапись активного Video ID фоновыми запросами рекомендаций (`JSON.parse`).
-  - Добавлено изолированное кэширование сегментов (`segmentsCache`) для надёжного пропуска при любых переключениях видео.
-  - Оптимизировано окно детекции таймкодов для мгновенного и бесшовного автоскипа вставок.
-- 🎯 **Интерактивный выбор категорий SponsorBlock**:
-  - Нативный диалог мульти-выбора на экране ТВ (меню по кнопке MENU / Red ➔ «Категории SponsorBlock»).
-  - Удобные чекбоксы в Web UI (`:8888`) для всех 8 категорий (спонсорство, самореклама, интеракции, интро, аутро, превью, филлеры, немузыкальные паузы в клипах).
-- 🔤 **Поддержка UTF-8 кодировки**: безупречное отображение русских текстов в Leanback-диалогах и OSD на телевизоре.
-- ⚡ **Встроенный SOCKS5 Прокси**: локальный loopback-туннель на порту 9876 с поддержкой авторизации.
-- 📺 **Фиксация качества видео**: до 4K 2160p с пульта и через Web UI.
-- ⚡ **Регулировка скорости**: от 1.0x до 2.0x с горячими клавишами.
-- 📖 **Подробные руководства**: инструкции по установке в [README.md](https://github.com/chattytoaster/yttvaf/blob/main/README.md) и руководство по переносу мода на новые версии YouTube в [UPDATING.md](https://github.com/chattytoaster/yttvaf/blob/main/UPDATING.md).
+---
 
-### 📦 Установка:
+### 🌟 What's New in {tag} / Что нового:
+
+#### 💬 Floating Disappearing Popup Window (OSD) / Всплывающее окно пропуска
+- **Instant Visual Feedback**: Whenever a sponsor or promotional segment is skipped, a sleek floating notification pops up in the top-right corner of the TV screen:
+  `⏩ Skipped sponsor (13s)` / `⏩ Пропущен спонсор (13 сек)`.
+- **System Toast Bridge**: In addition to on-screen DOM rendering, skip events are bridged to native Android TV toasts for guaranteed visibility on any TV firmware.
+- **HUD Indicator**: Also clearly displays playback speed adjustments (⚡ Speed: 1.25x), resolution locks (📺 Quality: 1080p), and SponsorBlock toggle status.
+
+#### 🌍 Full Multilingual Localization (EN & RU) / Полная двуязычная локализация
+- **Auto-Detection & Manual Switcher**: Automatically selects English or Russian based on your Android TV system language, with easy manual switching in both the TV Settings Menu and Web UI (`[EN] / [RU]`).
+- **Complete In-App Translation**:
+  - Leanback TV Settings Dialog (opened via MENU / SETTINGS / GUIDE / RED button).
+  - SponsorBlock Category Selector dialog on TV screen.
+  - SOCKS5 input dialog and setup instructions.
+  - Embedded Web Management UI (`http://<TV_IP>:8888`).
+- **Bilingual Documentation**:
+  - Full project manuals: [README.md (EN)](https://github.com/chattytoaster/yttvaf/blob/main/README.md) & [README_RU.md (RU)](https://github.com/chattytoaster/yttvaf/blob/main/README_RU.md).
+  - Step-by-step update guides: [UPDATING_EN.md (EN)](https://github.com/chattytoaster/yttvaf/blob/main/UPDATING_EN.md) & [UPDATING.md (RU)](https://github.com/chattytoaster/yttvaf/blob/main/UPDATING.md).
+
+#### 🎯 SponsorBlock Category Selection / Выбор категорий
+- Interactive multi-choice category selector dialog directly on the TV screen and checkboxes in Web UI (`:8888`).
+- 8 customizable categories: Sponsor, Self-promotion, Interaction reminder, Intro, Outro, Preview, Filler/Tangent, Music off-topic.
+
+#### ⚡ Built-in SOCKS5 Proxy Subsystem / Встроенный SOCKS5 Прокси
+- Authenticated loopback tunnel on port `9876` for transparent routing of Cobalt, Cronet, and Chromium.
+- Smart TV YouTube unblocking without third-party VPN apps or router alterations.
+
+#### 📺 Quality Lock & Playback Speed / Фиксация качества и скорости
+- Lock desired resolution up to 4K 2160p.
+- Variable playback speed (1.0x - 2.0x).
+
+---
+
+### 📦 Installation / Установка:
 ```bash
-adb connect <IP_ТВ>:5555
+adb connect <TV_IP>:5555
 adb install -r YouTubeTV-Mod-{tag}.apk
 adb shell monkey -p com.chatty.yttvaf -c android.intent.category.LEANBACK_LAUNCHER 1
 ```
