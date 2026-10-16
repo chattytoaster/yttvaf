@@ -43,6 +43,7 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.URL;
 import java.net.URLDecoder;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -59,6 +60,11 @@ public class ProxyHelper {
     
     public static final String KEY_SB_ENABLED = "sb_enabled";
     public static final String KEY_SB_CATEGORIES = "sb_categories";
+    public static final String KEY_SB_SERVER = "sb_server";
+    public static final String DEFAULT_SB_SERVER = "https://api.sponsor.ajay.app";
+    public static final String FALLBACK_SB_SERVER = "https://sponsor.ajay.app";
+    public static final String MODERN_USER_AGENT =
+            "Mozilla/5.0 (Linux; Android 12; BRAVIA 4K Build/STT2.221220.001) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.6613.127 Safari/537.36";
     public static final String KEY_PREFERRED_QUALITY = "preferred_quality";
     public static final String KEY_PLAYBACK_SPEED = "playback_speed";
     public static final String KEY_COLOR_KEYS_ENABLED = "color_keys_enabled";
@@ -246,8 +252,12 @@ public class ProxyHelper {
                     if (json == null || json.trim().isEmpty()) {
                         json = "[]";
                     }
-                    Log.i(TAG, "Injecting SponsorBlock segments for " + vid + " (len=" + json.length() + ")...");
-                    evaluateJs("if(window.__yttv_set_segments) window.__yttv_set_segments('" + vid + "', " + json + ");");
+                    if (sSponsorBlockCache.containsKey(vid)) {
+                        Log.i(TAG, "Injecting SponsorBlock segments for " + vid + " (len=" + json.length() + ")...");
+                        evaluateJs("if(window.__yttv_set_segments) window.__yttv_set_segments('" + vid + "', " + json + ");");
+                    } else {
+                        Log.w(TAG, "SponsorBlock segments not cached (fetch failed) for " + vid + ", skipping injection to allow retry.");
+                    }
                 } catch (Throwable t) {
                     Log.e(TAG, "Failed to fetch/inject SponsorBlock for " + vid, t);
                 }
@@ -1120,6 +1130,7 @@ public class ProxyHelper {
                 cfg.put("proxy_url", prefs.getString(KEY_PROXY_URL, ""));
                 cfg.put("proxy_enabled", prefs.getBoolean(KEY_PROXY_ENABLED, true));
                 cfg.put("sb_enabled", prefs.getBoolean(KEY_SB_ENABLED, true));
+                cfg.put("sb_server", prefs.getString(KEY_SB_SERVER, ""));
                 cfg.put("sb_categories", getSbCategoriesArray(prefs));
                 cfg.put("quality", prefs.getString(KEY_PREFERRED_QUALITY, "auto"));
                 cfg.put("speed", (double) prefs.getFloat(KEY_PLAYBACK_SPEED, 1.0f));
@@ -1222,16 +1233,28 @@ public class ProxyHelper {
                     newCats = rawCats;
                 }
 
+                String rawSbServer = extractParam(payload, "sb_server");
+                if (rawSbServer != null) {
+                    try {
+                        rawSbServer = URLDecoder.decode(rawSbServer, "UTF-8").trim();
+                    } catch (Exception ignored) {}
+                }
+
                 SharedPreferences.Editor editor = prefs.edit()
                         .putBoolean(KEY_SB_ENABLED, sb)
                         .putString(KEY_PREFERRED_QUALITY, q)
                         .putFloat(KEY_PLAYBACK_SPEED, sp)
                         .putBoolean(KEY_COLOR_KEYS_ENABLED, ck);
+                if (rawSbServer != null) {
+                    editor.putString(KEY_SB_SERVER, rawSbServer);
+                }
                 if (payload.contains("cat_") || (rawCats != null && !rawCats.isEmpty())) {
                     editor.putString(KEY_SB_CATEGORIES, newCats);
                 }
                 editor.apply();
 
+                sSponsorBlockCache.clear();
+                sLastFetchTime.clear();
                 updateWebClientConfig(prefs);
                 responseHtml = getHtmlPage(context, isRuReq ? "✅ Настройки применены на ТВ!" : "✅ Settings applied to TV!");
             } else if (path.startsWith("/save") || ("POST".equalsIgnoreCase(method) && path.equals("/"))) {
@@ -1563,6 +1586,10 @@ public class ProxyHelper {
                 "            }\n" +
                 "        }\n" +
                 "    };\n" +
+                "    window.__yttv_clear_sb_cache = function() {\n" +
+                "        segmentsCache = {};\n" +
+                "        pendingFetches = {};\n" +
+                "    };\n" +
                 "\n" +
                 "    function checkSponsorBlock(curTime) {\n" +
                 "        if (!window.__yttv_config.sbEnabled || segments.length === 0 || curTime < 0) return;\n" +
@@ -1684,12 +1711,38 @@ public class ProxyHelper {
             return sSponsorBlockCache.get(videoId);
         }
         String result = "[]";
-        String[] endpoints = new String[]{
-                "https://sponsor.ajay.app/api/skipSegments?videoID=" + videoId +
-                        "&categories=%5B%22sponsor%22,%22selfpromo%22,%22interaction%22,%22intro%22,%22outro%22,%22preview%22,%22filler%22,%22music_offtopic%22%5D",
-                "https://api.sponsor.ajay.app/api/skipSegments?videoID=" + videoId +
-                        "&categories=%5B%22sponsor%22,%22selfpromo%22,%22interaction%22,%22intro%22,%22outro%22,%22preview%22,%22filler%22,%22music_offtopic%22%5D"
-        };
+
+        SharedPreferences prefs = sContext != null ? sContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) : null;
+        String customServer = prefs != null ? prefs.getString(KEY_SB_SERVER, "").trim() : "";
+
+        String querySuffix = "?videoID=" + videoId +
+                "&categories=%5B%22sponsor%22,%22selfpromo%22,%22interaction%22,%22intro%22,%22outro%22,%22preview%22,%22filler%22,%22music_offtopic%22%5D";
+
+        List<String> endpoints = new ArrayList<String>();
+        if (!customServer.isEmpty()) {
+            String srv = customServer;
+            if (srv.endsWith("/")) {
+                srv = srv.substring(0, srv.length() - 1);
+            }
+            if (!srv.contains("/api/skipSegments")) {
+                srv += "/api/skipSegments";
+            }
+            endpoints.add(srv + querySuffix);
+        }
+
+        // When connecting directly (without proxy), prioritize api.sponsor.ajay.app (direct Hetzner origin)
+        // because sponsor.ajay.app (Cloudflare) drops TCP SYN packets via TSPU in Russia.
+        if (!sProxyEnabled) {
+            String primary = DEFAULT_SB_SERVER + "/api/skipSegments" + querySuffix;
+            String fallback = FALLBACK_SB_SERVER + "/api/skipSegments" + querySuffix;
+            if (!endpoints.contains(primary)) endpoints.add(primary);
+            if (!endpoints.contains(fallback)) endpoints.add(fallback);
+        } else {
+            String primary = FALLBACK_SB_SERVER + "/api/skipSegments" + querySuffix;
+            String fallback = DEFAULT_SB_SERVER + "/api/skipSegments" + querySuffix;
+            if (!endpoints.contains(primary)) endpoints.add(primary);
+            if (!endpoints.contains(fallback)) endpoints.add(fallback);
+        }
 
         Proxy[] proxies;
         if (sProxyEnabled) {
@@ -1709,9 +1762,13 @@ public class ProxyHelper {
                 try {
                     URL url = new URL(urlStr);
                     conn = (HttpURLConnection) url.openConnection(proxy);
-                    conn.setConnectTimeout(3500);
-                    conn.setReadTimeout(3500);
-                    conn.setRequestProperty("User-Agent", "Mozilla/5.0 (SmartHub; SMART-TV; U; Linux/SmartTV) AppleWebKit/538.1");
+                    conn.setConnectTimeout(4000);
+                    conn.setReadTimeout(4000);
+                    conn.setInstanceFollowRedirects(true);
+                    conn.setRequestProperty("User-Agent", MODERN_USER_AGENT);
+                    conn.setRequestProperty("Accept", "application/json");
+                    conn.setRequestProperty("Accept-Language", "en-US,en;q=0.9,ru;q=0.8");
+
                     int code = conn.getResponseCode();
                     if (code == 200) {
                         BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream(), "UTF-8"));
@@ -1723,13 +1780,18 @@ public class ProxyHelper {
                         br.close();
                         result = sb.toString();
                         success = true;
+                        Log.i(TAG, "SponsorBlock loaded " + result.length() + " chars from " + url.getHost() + " for " + videoId);
                         break;
                     } else if (code == 404) {
                         result = "[]";
                         success = true;
+                        Log.i(TAG, "SponsorBlock returned 404 (no segments) for " + videoId);
                         break;
+                    } else {
+                        Log.w(TAG, "SponsorBlock returned HTTP " + code + " from " + urlStr);
                     }
-                } catch (Throwable ignored) {
+                } catch (Throwable t) {
+                    Log.w(TAG, "SponsorBlock connection failed to " + urlStr + " (proxy=" + proxy + "): " + t.getMessage());
                 } finally {
                     if (conn != null) {
                         try { conn.disconnect(); } catch (Throwable ignored) {}
@@ -1738,7 +1800,11 @@ public class ProxyHelper {
             }
         }
 
-        sSponsorBlockCache.put(videoId, result);
+        if (success) {
+            sSponsorBlockCache.put(videoId, result);
+        } else {
+            Log.w(TAG, "All SponsorBlock endpoints failed for " + videoId + "; not caching failure to allow retries.");
+        }
         return result;
     }
 
@@ -1868,6 +1934,20 @@ public class ProxyHelper {
                 boolean colorKeys = prefs.getBoolean(KEY_COLOR_KEYS_ENABLED, true);
                 String tvIp = getLocalIpAddress();
                 int catCount = getSbCategoriesSet(activity).size();
+                String curSbServer = prefs.getString(KEY_SB_SERVER, "").trim();
+                String sbServerLabel;
+                if (curSbServer.isEmpty()) {
+                    sbServerLabel = isRu ? "Авто" : "Auto";
+                } else if (DEFAULT_SB_SERVER.equalsIgnoreCase(curSbServer)) {
+                    sbServerLabel = "api.sponsor.ajay.app";
+                } else if (FALLBACK_SB_SERVER.equalsIgnoreCase(curSbServer)) {
+                    sbServerLabel = "sponsor.ajay.app";
+                } else {
+                    sbServerLabel = curSbServer.replace("https://", "").replace("http://", "");
+                    if (sbServerLabel.length() > 20) {
+                        sbServerLabel = sbServerLabel.substring(0, 17) + "...";
+                    }
+                }
 
                 AlertDialog.Builder builder = new AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert);
                 builder.setTitle(isRu ? "⚙ Настройки YouTube TV Mod" : "⚙ YouTube TV Mod Settings");
@@ -1884,6 +1964,7 @@ public class ProxyHelper {
                         isRu ? ("⚡ SOCKS5 Прокси: [" + proxyLabel + "]") : ("⚡ SOCKS5 Proxy: [" + proxyLabel + "]"),
                         isRu ? ("⏩ SponsorBlock: [" + (sbEn ? onStr : offStr) + "]") : ("⏩ SponsorBlock: [" + (sbEn ? onStr : offStr) + "]"),
                         isRu ? ("🎯 Категории SponsorBlock: [" + catCount + " из " + ALL_SB_CATEGORIES.length + "]") : ("🎯 SponsorBlock Categories: [" + catCount + " of " + ALL_SB_CATEGORIES.length + "]"),
+                        isRu ? ("🌐 Сервер SponsorBlock: [" + sbServerLabel + "]") : ("🌐 SponsorBlock Server: [" + sbServerLabel + "]"),
                         isRu ? ("📺 Качество видео: [" + qLabel + "]") : ("📺 Video Quality: [" + qLabel + "]"),
                         isRu ? ("⚡ Скорость воспроизведения: [" + speed + "x]") : ("⚡ Playback Speed: [" + speed + "x]"),
                         isRu ? ("🎮 Цветные кнопки пульта: [" + (colorKeys ? onStr : offStr) + "]") : ("🎮 Remote Color Buttons: [" + (colorKeys ? onStr : offStr) + "]"),
@@ -1915,14 +1996,17 @@ public class ProxyHelper {
                     showSponsorBlockCategoriesDialog(activity);
                     break;
                 case 3:
+                    showSponsorBlockServerDialog(activity);
+                    break;
+                case 4:
                     cycleQuality(activity);
                     showSettingsDialog(activity);
                     break;
-                case 4:
+                case 5:
                     cyclePlaybackSpeed(activity);
                     showSettingsDialog(activity);
                     break;
-                case 5:
+                case 6:
                     boolean nk = !prefs.getBoolean(KEY_COLOR_KEYS_ENABLED, true);
                     prefs.edit().putBoolean(KEY_COLOR_KEYS_ENABLED, nk).apply();
                     String onStr = isRu ? "ВКЛ" : "ON";
@@ -1930,10 +2014,10 @@ public class ProxyHelper {
                     Toast.makeText(activity, (isRu ? "Цветные кнопки: " : "Color buttons: ") + (nk ? onStr : offStr), Toast.LENGTH_SHORT).show();
                     showSettingsDialog(activity);
                     break;
-                case 6:
+                case 7:
                     showLanguageDialog(activity);
                     break;
-                case 7:
+                case 8:
                     showWebHintDialog(activity);
                     break;
             }
@@ -2035,6 +2119,127 @@ public class ProxyHelper {
     public static void showSponsorBlockCategoriesDialog(final Activity activity) {
         if (activity == null || activity.isFinishing()) return;
         activity.runOnUiThread(new SbCategoriesDialogRunnable(activity));
+    }
+
+    public static void showSponsorBlockServerDialog(final Activity activity) {
+        if (activity == null || activity.isFinishing()) return;
+        final SharedPreferences prefs = activity.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        final boolean isRu = isRussian(prefs);
+        final String cur = prefs.getString(KEY_SB_SERVER, "").trim();
+
+        final String[] options = new String[] {
+                isRu ? "Автоматически (api.sponsor.ajay.app / sponsor.ajay.app)" : "Auto (api.sponsor.ajay.app / sponsor.ajay.app)",
+                "api.sponsor.ajay.app (" + (isRu ? "Прямой Hetzner, без Cloudflare" : "Direct Hetzner, no Cloudflare") + ")",
+                "sponsor.ajay.app (" + (isRu ? "Cloudflare CDN" : "Cloudflare CDN") + ")",
+                isRu ? "Пользовательский URL..." : "Custom Server URL..."
+        };
+
+        int selected = 0;
+        if (cur.isEmpty()) {
+            selected = 0;
+        } else if (DEFAULT_SB_SERVER.equalsIgnoreCase(cur)) {
+            selected = 1;
+        } else if (FALLBACK_SB_SERVER.equalsIgnoreCase(cur)) {
+            selected = 2;
+        } else {
+            selected = 3;
+        }
+
+        AlertDialog.Builder builder = new AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert);
+        builder.setTitle(isRu ? "🌐 Сервер SponsorBlock" : "🌐 SponsorBlock Server");
+        builder.setSingleChoiceItems(options, selected, new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                dialog.dismiss();
+                if (which == 0) {
+                    prefs.edit().putString(KEY_SB_SERVER, "").apply();
+                    updateWebClientConfig(prefs);
+                    Toast.makeText(activity, isRu ? "Сервер: Авто" : "Server: Auto", Toast.LENGTH_SHORT).show();
+                    showSettingsDialog(activity);
+                } else if (which == 1) {
+                    prefs.edit().putString(KEY_SB_SERVER, DEFAULT_SB_SERVER).apply();
+                    updateWebClientConfig(prefs);
+                    Toast.makeText(activity, "api.sponsor.ajay.app", Toast.LENGTH_SHORT).show();
+                    showSettingsDialog(activity);
+                } else if (which == 2) {
+                    prefs.edit().putString(KEY_SB_SERVER, FALLBACK_SB_SERVER).apply();
+                    updateWebClientConfig(prefs);
+                    Toast.makeText(activity, "sponsor.ajay.app", Toast.LENGTH_SHORT).show();
+                    showSettingsDialog(activity);
+                } else if (which == 3) {
+                    showCustomSbServerInputDialog(activity);
+                }
+            }
+        });
+        builder.setNegativeButton(isRu ? "Назад" : "Back", new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                showSettingsDialog(activity);
+            }
+        });
+        builder.show();
+    }
+
+    public static void showCustomSbServerInputDialog(final Activity activity) {
+        if (activity == null || activity.isFinishing()) return;
+        final SharedPreferences prefs = activity.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        final boolean isRu = isRussian(prefs);
+        String cur = prefs.getString(KEY_SB_SERVER, "");
+
+        AlertDialog.Builder builder = new AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert);
+        builder.setTitle(isRu ? "🌐 Пользовательский сервер" : "🌐 Custom SponsorBlock Server");
+
+        LinearLayout layout = new LinearLayout(activity);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(40, 20, 40, 10);
+
+        TextView hintTv = new TextView(activity);
+        hintTv.setText(isRu ?
+                "Введите базовый URL зеркала SponsorBlock (например, https://api.sponsor.ajay.app):" :
+                "Enter SponsorBlock mirror base URL (e.g. https://api.sponsor.ajay.app):");
+        hintTv.setTextSize(15f);
+        hintTv.setTextColor(0xFFCCCCCC);
+        layout.addView(hintTv);
+
+        final EditText input = new EditText(activity);
+        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        input.setText(cur);
+        input.setHint("https://api.sponsor.ajay.app");
+        input.setTextSize(16f);
+        input.setTextColor(0xFFFFFFFF);
+        input.setPadding(20, 20, 20, 20);
+        input.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+        layout.addView(input);
+
+        builder.setView(layout);
+
+        builder.setPositiveButton(isRu ? "Сохранить" : "Save", new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                String val = input.getText().toString().trim();
+                if (!val.isEmpty()) {
+                    if (!val.startsWith("http://") && !val.startsWith("https://")) {
+                        val = "https://" + val;
+                    }
+                    while (val.endsWith("/")) {
+                        val = val.substring(0, val.length() - 1);
+                    }
+                }
+                prefs.edit().putString(KEY_SB_SERVER, val).apply();
+                updateWebClientConfig(prefs);
+                Toast.makeText(activity, isRu ? "Сервер сохранен" : "Server saved", Toast.LENGTH_SHORT).show();
+                showSettingsDialog(activity);
+            }
+        });
+        builder.setNegativeButton(isRu ? "Отмена" : "Cancel", new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                showSettingsDialog(activity);
+            }
+        });
+        builder.show();
     }
 
     public static void showSettingsDialog(final Activity activity) {
@@ -2186,6 +2391,10 @@ public class ProxyHelper {
                     "isRu:" + isRu +
                     "}); }";
             evaluateJs(js);
+            evaluateJs("if(window.__yttv_clear_sb_cache) { window.__yttv_clear_sb_cache(); }");
+            sSponsorBlockCache.clear();
+            sLastFetchTime.clear();
+            evaluateJs("if(window.__yttv_check_video) { window.__yttv_check_video(); }");
         } catch (Throwable t) {
             Log.e(TAG, "updateWebClientConfig error", t);
         }
@@ -2286,6 +2495,14 @@ public class ProxyHelper {
             sb.append("</div>");
         }
         sb.append("</div>");
+
+        // SponsorBlock Server
+        String curSbServer = prefs.getString(KEY_SB_SERVER, "").trim();
+        sb.append("<label style='margin-top: 14px;'>🌐 ").append(isRu ? "Сервер SponsorBlock (зеркало):" : "SponsorBlock Server (Mirror):").append("</label>");
+        sb.append("<input type='text' name='sb_server' placeholder='https://api.sponsor.ajay.app' value='").append(escapeHtml(curSbServer)).append("'>");
+        sb.append("<p style='font-size: 12px; color: #888; margin-top: 4px; margin-bottom: 12px;'>").append(isRu ?
+                "Оставьте пустым для автовыбора (api.sponsor.ajay.app напрямую без Cloudflare, либо sponsor.ajay.app через прокси)." :
+                "Leave empty for auto (direct api.sponsor.ajay.app or sponsor.ajay.app via proxy).").append("</p>");
 
         // Quality
         sb.append("<label>📺 ").append(isRu ? "Предпочитаемое качество видео:" : "Preferred Video Quality:").append("</label>");
